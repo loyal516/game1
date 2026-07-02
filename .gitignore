@@ -1,0 +1,29 @@
+node_modules/
+dist/
+prototype/artifacts/
+.DS_Store
+**/TestResults.xml
+
+# Unity generated folders
+**/Library/
+**/Temp/
+**/Obj/
+**/Build/
+**/Builds/
+**/Logs/
+**/UserSettings/
+**/MemoryCaptures/
+**/Recordings/
+**/DerivedDataCache/
+
+# Unity generated files
+*.csproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db

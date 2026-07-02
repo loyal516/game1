@@ -1,0 +1,78 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b09c14d0a04a14d5ea32c881e7448eee, type: 3}
+  m_Name: DefaultMovementProfiles
+  m_EditorClassIdentifier: 
+  profiles:
+  - state: 0
+    canMove: 1
+    canSprint: 1
+    walkSpeed: 4.5
+    runSpeed: 7.2
+    acceleration: 18
+    turnSharpness: 16
+    noiseRadius: 6
+    footstepInterval: 0.44
+  - state: 1
+    canMove: 1
+    canSprint: 1
+    walkSpeed: 4.8
+    runSpeed: 7.6
+    acceleration: 18
+    turnSharpness: 16
+    noiseRadius: 8
+    footstepInterval: 0.38
+  - state: 2
+    canMove: 1
+    canSprint: 1
+    walkSpeed: 5
+    runSpeed: 7.9
+    acceleration: 18
+    turnSharpness: 16
+    noiseRadius: 9.5
+    footstepInterval: 0.36
+  - state: 3
+    canMove: 0
+    canSprint: 0
+    walkSpeed: 0
+    runSpeed: 0
+    acceleration: 18
+    turnSharpness: 16
+    noiseRadius: 0
+    footstepInterval: 1
+  - state: 4
+    canMove: 0
+    canSprint: 0
+    walkSpeed: 0
+    runSpeed: 0
+    acceleration: 18
+    turnSharpness: 16
+    noiseRadius: 0
+    footstepInterval: 1
+  - state: 5
+    canMove: 1
+    canSprint: 0
+    walkSpeed: 6.3
+    runSpeed: 6.3
+    acceleration: 18
+    turnSharpness: 16
+    noiseRadius: 3
+    footstepInterval: 0.52
+  - state: 6
+    canMove: 0
+    canSprint: 0
+    walkSpeed: 0
+    runSpeed: 0
+    acceleration: 18
+    turnSharpness: 16
+    noiseRadius: 0
+    footstepInterval: 1

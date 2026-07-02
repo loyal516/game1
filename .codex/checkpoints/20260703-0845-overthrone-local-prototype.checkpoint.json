@@ -1,0 +1,112 @@
+{
+  "goal": "GDD 기준으로 Overthrone 로컬 프로토타입을 가능한 범위까지 구현하고, 미완료 항목은 명시한 뒤 wrap 문서와 git 커밋으로 세션을 마감한다.",
+  "status": "stopped",
+  "created_at": "2026-07-03 08:45",
+  "updated_at": "2026-07-03 08:45",
+  "progress": [
+    {
+      "phase": "문서 재정리와 방향 결정",
+      "summary": "기존 GDD를 읽고 최신 기준으로 정리했다. 게임은 점령과 공수전환, 왕의 최종 포획, 슬라임 탈출을 핵심으로 하는 3인칭 비대칭 잠입/추격 PvP로 정리했다.",
+      "evidence": [
+        "GDD.md"
+      ]
+    },
+    {
+      "phase": "브라우저 프로토타입",
+      "summary": "Unity 전환 전 Three.js 브라우저 프로토타입으로 이동, 3인칭 카메라, AI, 점령, 상태 전환, 포획 루프를 빠르게 검증했다. 이후 Unity가 설치되면서 브라우저 프로토타입은 규칙 검증용 참고 구현으로 남겼다.",
+      "evidence": [
+        "package.json",
+        "prototype/src/game.js",
+        "prototype/README.md"
+      ]
+    },
+    {
+      "phase": "Unity 프로젝트 생성",
+      "summary": "Unity 6 로컬 프로젝트를 생성하고 URP, Input System, 테스트 asmdef, 기본 씬/프리팹/프로필/부트스트랩을 구성했다. 외부 Photon/Supabase 없이 로컬-first로 검증하는 구조로 잡았다.",
+      "evidence": [
+        "unity/OverthroneUnity/Packages/manifest.json",
+        "unity/OverthroneUnity/Assets/Editor/OverthroneUnityBootstrap.cs",
+        "unity/OverthroneUnity/Assets/Scenes/Prototype.unity"
+      ]
+    },
+    {
+      "phase": "이동/카메라/입력",
+      "summary": "WASD/방향키, 마우스룩, 게임패드 look 보정, Sprint, Dash, Jump, Crouch, Slime, Tackle, Capture hold, Ping 입력을 Unity Input System에 연결했다. 마우스 클릭 없이 시점이 움직이도록 FPS/TPS 표준에 맞췄고 방향키 좌우 반전 문제도 정리했다. 3인칭 카메라는 SphereCast 충돌 보정까지 추가했다.",
+      "evidence": [
+        "unity/OverthroneUnity/Assets/Input/OverthroneControls.inputactions",
+        "unity/OverthroneUnity/Assets/Scripts/Input/PlayerInputReader.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Movement/PlayerMotor.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Camera/ThirdPersonCameraRig.cs"
+      ]
+    },
+    {
+      "phase": "상태/점령/왕 승계",
+      "summary": "Neutral, Attacker, King, Held, Captured, Slime, Holding 상태별 MovementProfile을 만들고, 로컬 Blue 3 / Red 3 roster로 3v3 기준을 구성했다. 점령 수와 팀 내 기여도 기준으로 팀당 King 1명을 정하고, 3명 집결 기반 Attacker 및 5초 유예를 구현했다.",
+      "evidence": [
+        "unity/OverthroneUnity/Assets/Scripts/States/MovementState.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Match/LocalMatchRules.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Match/LocalMatchManager.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Match/LocalRosterSlot.cs"
+      ]
+    },
+    {
+      "phase": "포획/구출/관전/피드백",
+      "summary": "LocalCaptureSystem과 PlayerCaptureAgent로 덮치기, 붙들기, 왕 최종 포획, 같은 팀 구출, 붙든 자 interrupt, Captured 관전 전환, dead channel 로그, 절차적 VFX/SFX 피드백을 구현했다. TackleHitbox 전방 물리 히트박스를 기본 경로로 사용하고 레거시 agent 스캔은 fallback으로 남겼다.",
+      "evidence": [
+        "unity/OverthroneUnity/Assets/Scripts/Capture/LocalCaptureSystem.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Capture/PlayerCaptureAgent.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Capture/TackleHitbox.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Camera/LocalSpectatorCamera.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Communication/LocalDeadChannel.cs"
+      ]
+    },
+    {
+      "phase": "HUD/미니맵/핑",
+      "summary": "로컬 HUD에 스태미나, 상태 텍스트, Dash/Slime gate, 점령 패널, 팀 상태 레일, 포획 진행 링, 관전 overlay, 미니맵, G 탭 컨텍스트 핑, G 홀드 방사형 핑 휠, 로컬 핑 응답 로그를 추가했다.",
+      "evidence": [
+        "unity/OverthroneUnity/Assets/Scripts/PlayerHud.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Communication/LocalPingSystem.cs",
+        "unity/OverthroneUnity/Assets/Scripts/Communication/LocalPingType.cs"
+      ]
+    },
+    {
+      "phase": "슬라임 MVP 마감",
+      "summary": "R 입력 시 스태미나 50 소모와 15초 쿨다운, Held 상태 매치당 1회 탈출에 더해 CharacterController 히트박스 축소, no-input 감속 완화, placeholder squash/widen 변형 비주얼을 구현했다. 정식 shader/softbody VFX와 좁은 통로 레벨 검증은 남겼다.",
+      "evidence": [
+        "unity/OverthroneUnity/Assets/Scripts/Movement/PlayerMotor.cs",
+        "unity/OverthroneUnity/Assets/Scripts/States/PlayerStateController.cs",
+        "unity/OverthroneUnity/Assets/Tests/EditMode/MovementProfileTests.cs",
+        "GDD.md"
+      ]
+    }
+  ],
+  "decisions": [
+    "초기 출시 방향은 Steam/PC를 우선하고 모바일은 PC 안정화 이후로 둔다.",
+    "시점은 3인칭 추격 카메라를 기본으로 하며 1인칭은 옵션 검토 대상으로 남긴다.",
+    "Unity 6 로컬 프로젝트를 주 구현 대상으로 삼고 Three.js 프로토타입은 규칙 검증/비교용으로 남긴다.",
+    "Photon, Supabase, Steam SDK는 아직 붙이지 않고 로컬-first로 핵심 루프를 검증한다.",
+    "슬라임은 정식 softbody가 아니라 CharacterController 크기 변화와 root transform squash/widen으로 MVP를 먼저 증명한다."
+  ],
+  "blockers": [
+    {
+      "issue": "Unity 설치 전에는 실제 Unity 실행 검증이 불가능했다.",
+      "resolution": "사용자가 Unity를 설치한 뒤 Unity 6 batchmode EditMode 테스트로 전환했다."
+    },
+    {
+      "issue": "기존 문서의 오래된 1인칭 중심 설명과 현재 구현 방향이 충돌했다.",
+      "resolution": "GDD를 3인칭 기본, Steam 우선, 로컬 Unity prototype 기준으로 갱신했다."
+    }
+  ],
+  "open_questions": [
+    "Photon Fusion 2와 Supabase를 어느 Phase에서 실제 패키지로 붙일지 결정 필요.",
+    "정식 캐릭터 모델, 점프/앉기/덮치기/슬라임 애니메이션 에셋 필요.",
+    "슬라임 좁은 통로 레벨 검증과 shader/softbody VFX는 미구현.",
+    "한 씬에서 여러 라운드를 재시작할 때 슬라임 1회 탈출권 reset hook 필요.",
+    "dead channel 실제 입력 UI, 온라인 채팅, moderation 설계 필요."
+  ],
+  "handoff": {
+    "local_run": "Unity Hub에서 unity/OverthroneUnity 프로젝트를 열고 Assets/Scenes/Prototype.unity를 실행한다.",
+    "test_command": "/Applications/Unity/Hub/Editor/6000.0.78f1/Unity.app/Contents/MacOS/Unity -batchmode -projectPath /Users/wy/Github-repos/game1/unity/OverthroneUnity -runTests -testPlatform EditMode -testResults /Users/wy/Github-repos/game1/unity/OverthroneUnity/TestResults.xml -logFile -",
+    "last_verification": "2026-07-03 08:44 KST 기준 Unity EditMode 102/102 Passed, git diff --check Passed, inputactions JSON parse Passed."
+  }
+}
