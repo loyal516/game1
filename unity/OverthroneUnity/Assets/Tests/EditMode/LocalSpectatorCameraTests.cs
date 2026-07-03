@@ -194,6 +194,181 @@ public sealed class LocalSpectatorCameraTests
         }
     }
 
+    [Test]
+    public void AliveLocalPlayerCannotSubmitDeadChannelInput()
+    {
+        var local = CreateAgent("Alive Local Dead Input", TeamId.Blue, MovementState.Neutral);
+        var ally = CreateAgent("Alive Ally Dead Input", TeamId.Blue, MovementState.Neutral);
+        var cameraFixture = CreateSpectatorCamera();
+        var hudObject = new GameObject("Dead Input Hud");
+        var statusObject = new GameObject("Status Text", typeof(RectTransform), typeof(Text));
+        var spectatorObject = new GameObject("Spectator Text", typeof(RectTransform), typeof(Text));
+        var inputObject = new GameObject("Dead Channel Input", typeof(RectTransform), typeof(InputField));
+        var sendButtonObject = new GameObject("Dead Channel Send", typeof(RectTransform), typeof(Button));
+        var deadChannelObject = new GameObject("Dead Channel");
+
+        try
+        {
+            cameraFixture.Spectator.Configure(local.Agent, new[] { local.Agent, ally.Agent });
+            var deadChannel = deadChannelObject.AddComponent<LocalDeadChannel>();
+            var inputField = inputObject.GetComponent<InputField>();
+            var sendButton = sendButtonObject.GetComponent<Button>();
+            var hud = hudObject.AddComponent<PlayerHud>();
+            hud.Configure(
+                local.Motor,
+                null,
+                statusObject.GetComponent<Text>(),
+                playerCaptureAgent: local.Agent,
+                localSpectatorCamera: cameraFixture.Spectator,
+                spectatorOverlayText: spectatorObject.GetComponent<Text>(),
+                localDeadChannel: deadChannel,
+                localDeadChannelInputField: inputField,
+                localDeadChannelSendButton: sendButton
+            );
+            inputField.text = "alive should fail";
+
+            hud.Refresh();
+
+            Assert.IsTrue(!inputField.gameObject.activeSelf || !inputField.interactable);
+            Assert.IsTrue(!sendButton.gameObject.activeSelf || !sendButton.interactable);
+            sendButton.onClick.Invoke();
+            Assert.AreEqual(0, deadChannel.MessageCount);
+            Assert.AreEqual("alive should fail", inputField.text);
+        }
+        finally
+        {
+            Object.DestroyImmediate(deadChannelObject);
+            Object.DestroyImmediate(sendButtonObject);
+            Object.DestroyImmediate(inputObject);
+            Object.DestroyImmediate(spectatorObject);
+            Object.DestroyImmediate(statusObject);
+            Object.DestroyImmediate(hudObject);
+            cameraFixture.Destroy();
+            Object.DestroyImmediate(local.GameObject);
+            Object.DestroyImmediate(ally.GameObject);
+        }
+    }
+
+    [Test]
+    public void WhitespaceDeadChannelInputFailsWithoutClearingField()
+    {
+        var local = CreateAgent("Captured Blank Dead Input", TeamId.Blue, MovementState.Neutral);
+        var ally = CreateAgent("Blank Input Ally", TeamId.Blue, MovementState.Neutral);
+        var enemyKing = CreateAgent("Enemy King", TeamId.Red, MovementState.King);
+        var cameraFixture = CreateSpectatorCamera();
+        var hudObject = new GameObject("Blank Dead Input Hud");
+        var statusObject = new GameObject("Status Text", typeof(RectTransform), typeof(Text));
+        var spectatorObject = new GameObject("Spectator Text", typeof(RectTransform), typeof(Text));
+        var inputObject = new GameObject("Dead Channel Input", typeof(RectTransform), typeof(InputField));
+        var sendButtonObject = new GameObject("Dead Channel Send", typeof(RectTransform), typeof(Button));
+        var deadChannelObject = new GameObject("Dead Channel");
+
+        try
+        {
+            Capture(enemyKing.Agent, local.Agent);
+            cameraFixture.Spectator.Configure(local.Agent, new[] { local.Agent, ally.Agent });
+            var deadChannel = deadChannelObject.AddComponent<LocalDeadChannel>();
+            var inputField = inputObject.GetComponent<InputField>();
+            var sendButton = sendButtonObject.GetComponent<Button>();
+            var hud = hudObject.AddComponent<PlayerHud>();
+            hud.Configure(
+                local.Motor,
+                null,
+                statusObject.GetComponent<Text>(),
+                playerCaptureAgent: local.Agent,
+                localSpectatorCamera: cameraFixture.Spectator,
+                spectatorOverlayText: spectatorObject.GetComponent<Text>(),
+                localDeadChannel: deadChannel,
+                localDeadChannelInputField: inputField,
+                localDeadChannelSendButton: sendButton
+            );
+            inputField.text = "   ";
+
+            Assert.IsTrue(sendButton.gameObject.activeSelf);
+            Assert.IsTrue(sendButton.interactable);
+            sendButton.onClick.Invoke();
+
+            Assert.AreEqual(0, deadChannel.CountVisibleMessages(local.Agent));
+            Assert.AreEqual("   ", inputField.text);
+        }
+        finally
+        {
+            Object.DestroyImmediate(deadChannelObject);
+            Object.DestroyImmediate(sendButtonObject);
+            Object.DestroyImmediate(inputObject);
+            Object.DestroyImmediate(spectatorObject);
+            Object.DestroyImmediate(statusObject);
+            Object.DestroyImmediate(hudObject);
+            cameraFixture.Destroy();
+            Object.DestroyImmediate(local.GameObject);
+            Object.DestroyImmediate(ally.GameObject);
+            Object.DestroyImmediate(enemyKing.GameObject);
+        }
+    }
+
+    [Test]
+    public void CapturedLocalPlayerSendButtonSubmitsDeadChannelInputToSpectatorOverlay()
+    {
+        var local = CreateAgent("Captured Local Input", TeamId.Blue, MovementState.Neutral);
+        var ally = CreateAgent("Alive Input Ally", TeamId.Blue, MovementState.Neutral);
+        var enemyKing = CreateAgent("Enemy King", TeamId.Red, MovementState.King);
+        var cameraFixture = CreateSpectatorCamera();
+        var hudObject = new GameObject("Submit Dead Input Hud");
+        var statusObject = new GameObject("Status Text", typeof(RectTransform), typeof(Text));
+        var spectatorObject = new GameObject("Spectator Text", typeof(RectTransform), typeof(Text));
+        var inputObject = new GameObject("Dead Channel Input", typeof(RectTransform), typeof(InputField));
+        var sendButtonObject = new GameObject("Dead Channel Send", typeof(RectTransform), typeof(Button));
+        var deadChannelObject = new GameObject("Dead Channel");
+
+        try
+        {
+            Capture(enemyKing.Agent, local.Agent);
+            cameraFixture.Spectator.Configure(local.Agent, new[] { local.Agent, ally.Agent });
+            var deadChannel = deadChannelObject.AddComponent<LocalDeadChannel>();
+            var inputField = inputObject.GetComponent<InputField>();
+            var sendButton = sendButtonObject.GetComponent<Button>();
+            var spectatorText = spectatorObject.GetComponent<Text>();
+            var hud = hudObject.AddComponent<PlayerHud>();
+            hud.Configure(
+                local.Motor,
+                null,
+                statusObject.GetComponent<Text>(),
+                playerCaptureAgent: local.Agent,
+                localSpectatorCamera: cameraFixture.Spectator,
+                spectatorOverlayText: spectatorText,
+                localDeadChannel: deadChannel,
+                localDeadChannelInputField: inputField,
+                localDeadChannelSendButton: sendButton
+            );
+            hud.Refresh();
+            inputField.text = " rotate mid ";
+
+            Assert.IsTrue(inputField.gameObject.activeSelf);
+            Assert.IsTrue(inputField.interactable);
+            Assert.IsTrue(sendButton.gameObject.activeSelf);
+            Assert.IsTrue(sendButton.interactable);
+            sendButton.onClick.Invoke();
+
+            Assert.AreEqual(1, deadChannel.CountVisibleMessages(local.Agent));
+            Assert.AreEqual(string.Empty, inputField.text);
+            StringAssert.Contains("DEAD CHANNEL", spectatorText.text);
+            StringAssert.Contains("Captured Local Input: rotate mid", spectatorText.text);
+        }
+        finally
+        {
+            Object.DestroyImmediate(deadChannelObject);
+            Object.DestroyImmediate(sendButtonObject);
+            Object.DestroyImmediate(inputObject);
+            Object.DestroyImmediate(spectatorObject);
+            Object.DestroyImmediate(statusObject);
+            Object.DestroyImmediate(hudObject);
+            cameraFixture.Destroy();
+            Object.DestroyImmediate(local.GameObject);
+            Object.DestroyImmediate(ally.GameObject);
+            Object.DestroyImmediate(enemyKing.GameObject);
+        }
+    }
+
     private static void Capture(PlayerCaptureAgent king, PlayerCaptureAgent target)
     {
         var holderFixture = CreateAgent($"{king.name} Holder", king.Team.Team, MovementState.Attacker);

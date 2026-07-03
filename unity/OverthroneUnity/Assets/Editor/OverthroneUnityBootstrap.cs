@@ -6,7 +6,9 @@ using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -553,6 +555,7 @@ public static class OverthroneUnityBootstrap
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
         hud.AddComponent<GraphicRaycaster>();
+        EnsureEventSystem();
 
         var root = hud.GetComponent<RectTransform>();
         var flowOverlay = CreateUiImage("Match Flow Overlay", root, new Color(0f, 0f, 0f, 0f));
@@ -661,6 +664,15 @@ public static class OverthroneUnityBootstrap
         spectatorText.gameObject.SetActive(false);
         SetRect(spectatorText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(620f, 92f), new Vector2(0f, -86f));
 
+        var deadChannelHintText = CreateUiText("Dead Channel Hint Text", root, 14, TextAnchor.MiddleCenter);
+        SetRect(deadChannelHintText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(460f, 22f), new Vector2(0f, -154f));
+        var deadChannelInputField = CreateDeadChannelInputField(root);
+        SetRect(deadChannelInputField.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(360f, 34f), new Vector2(-50f, -188f));
+        var deadChannelSendButton = CreateDeadChannelSendButton(root);
+        SetRect(deadChannelSendButton.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(92f, 34f), new Vector2(184f, -188f));
+        var deadChannelStatusText = CreateUiText("Dead Channel Status Text", root, 14, TextAnchor.MiddleCenter);
+        SetRect(deadChannelStatusText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(460f, 22f), new Vector2(0f, -224f));
+
         var flowBannerText = CreateUiText("Match Flow Banner", root, 34, TextAnchor.MiddleCenter);
         flowBannerText.horizontalOverflow = HorizontalWrapMode.Wrap;
         flowBannerText.verticalOverflow = VerticalWrapMode.Overflow;
@@ -698,7 +710,11 @@ public static class OverthroneUnityBootstrap
             pingSystem,
             pingMinimapMarker,
             pingLogText,
-            pingWheelText
+            pingWheelText,
+            deadChannelInputField,
+            deadChannelSendButton,
+            deadChannelStatusText,
+            deadChannelHintText
         );
 
         var flowPresenter = hud.AddComponent<LocalMatchFlowPresenter>();
@@ -757,6 +773,54 @@ public static class OverthroneUnityBootstrap
         }
 
         return markers;
+    }
+
+    private static void EnsureEventSystem()
+    {
+        if (Object.FindObjectOfType<EventSystem>() != null)
+        {
+            return;
+        }
+
+        var eventSystemObject = new GameObject("EventSystem");
+        eventSystemObject.AddComponent<EventSystem>();
+        var inputModule = eventSystemObject.AddComponent<InputSystemUIInputModule>();
+        inputModule.AssignDefaultActions();
+    }
+
+    private static InputField CreateDeadChannelInputField(Transform parent)
+    {
+        var background = CreateUiImage("Dead Channel Input", parent, new Color(0.04f, 0.06f, 0.07f, 0.84f));
+        var inputField = background.gameObject.AddComponent<InputField>();
+        inputField.targetGraphic = background;
+        inputField.lineType = InputField.LineType.SingleLine;
+        inputField.characterLimit = 96;
+
+        var placeholder = CreateUiText("Dead Channel Placeholder", background.rectTransform, 14, TextAnchor.MiddleLeft);
+        placeholder.text = "Team-only message";
+        placeholder.color = new Color(1f, 1f, 1f, 0.42f);
+        SetRect(placeholder.rectTransform, Vector2.zero, Vector2.one, new Vector2(-24f, -8f), Vector2.zero);
+
+        var inputText = CreateUiText("Dead Channel Input Text", background.rectTransform, 16, TextAnchor.MiddleLeft);
+        inputText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        inputText.verticalOverflow = VerticalWrapMode.Truncate;
+        SetRect(inputText.rectTransform, Vector2.zero, Vector2.one, new Vector2(-24f, -8f), Vector2.zero);
+
+        inputField.placeholder = placeholder;
+        inputField.textComponent = inputText;
+        return inputField;
+    }
+
+    private static Button CreateDeadChannelSendButton(Transform parent)
+    {
+        var background = CreateUiImage("Dead Channel Send Button", parent, new Color(0.16f, 0.32f, 0.42f, 0.92f));
+        var button = background.gameObject.AddComponent<Button>();
+        button.targetGraphic = background;
+
+        var label = CreateUiText("Dead Channel Send Button Text", background.rectTransform, 15, TextAnchor.MiddleCenter);
+        label.text = "Send";
+        SetRect(label.rectTransform, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+        return button;
     }
 
     private static Image[] CreateObjectivePanelRows(

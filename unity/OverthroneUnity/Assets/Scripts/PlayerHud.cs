@@ -37,7 +37,18 @@ namespace Overthrone
         [SerializeField] private Image pingMinimapMarker;
         [SerializeField] private Text pingLogText;
         [SerializeField] private Text pingWheelText;
+        [SerializeField] private InputField deadChannelInputField;
+        [SerializeField] private Button deadChannelSendButton;
+        [SerializeField] private Text deadChannelInputStatusText;
+        [SerializeField] private Text deadChannelInputHintText;
         [SerializeField] private float minimapWorldRadius = 16f;
+
+        private const string DeadChannelInputReadyStatus = "Dead channel ready";
+        private const string DeadChannelInputSentStatus = "Sent";
+        private const string DeadChannelInputBlockedStatus = "Not sent";
+        private const string DeadChannelInputHint = "Dead comms";
+
+        private string deadChannelInputStatus = DeadChannelInputReadyStatus;
 
         public void Configure(
             PlayerMotor motor,
@@ -69,8 +80,17 @@ namespace Overthrone
             LocalPingSystem localPingSystem = null,
             Image minimapPingMarker = null,
             Text localPingLogText = null,
-            Text localPingWheelText = null)
+            Text localPingWheelText = null,
+            InputField localDeadChannelInputField = null,
+            Button localDeadChannelSendButton = null,
+            Text localDeadChannelInputStatusText = null,
+            Text localDeadChannelInputHintText = null)
         {
+            if (deadChannelSendButton != null)
+            {
+                deadChannelSendButton.onClick.RemoveListener(SubmitDeadChannelInput);
+            }
+
             playerMotor = motor;
             stateController = playerMotor != null ? playerMotor.GetComponent<PlayerStateController>() : null;
             staminaFill = staminaImage;
@@ -100,8 +120,20 @@ namespace Overthrone
             pingMinimapMarker = minimapPingMarker;
             pingLogText = localPingLogText;
             pingWheelText = localPingWheelText;
+            deadChannelInputField = localDeadChannelInputField;
+            deadChannelSendButton = localDeadChannelSendButton;
+            deadChannelInputStatusText = localDeadChannelInputStatusText;
+            deadChannelInputHintText = localDeadChannelInputHintText;
             minimapWorldRadius = Mathf.Max(1f, minimapRadius);
+            deadChannelInputStatus = DeadChannelInputReadyStatus;
+            if (deadChannelSendButton != null)
+            {
+                deadChannelSendButton.onClick.RemoveListener(SubmitDeadChannelInput);
+                deadChannelSendButton.onClick.AddListener(SubmitDeadChannelInput);
+            }
+
             SetCapturePoints(objectives);
+            RefreshDeadChannelInput();
         }
 
         public void SetCapturePoints(CapturePoint[] objectives)
@@ -118,6 +150,7 @@ namespace Overthrone
         {
             if (playerMotor == null)
             {
+                RefreshDeadChannelInput();
                 return;
             }
 
@@ -138,12 +171,7 @@ namespace Overthrone
 
             RefreshObjectivePanel();
 
-            if (spectatorText != null)
-            {
-                var isSpectating = spectatorCamera != null && spectatorCamera.IsSpectating;
-                spectatorText.gameObject.SetActive(isSpectating);
-                spectatorText.text = isSpectating ? BuildSpectatorText() : string.Empty;
-            }
+            RefreshSpectatorOverlay();
 
             if (teamRailText != null)
             {
@@ -164,6 +192,100 @@ namespace Overthrone
             RefreshPingWheel();
             RefreshPingLog();
             RefreshMinimap();
+            RefreshDeadChannelInput();
+        }
+
+        public void SubmitDeadChannelInput()
+        {
+            TrySubmitDeadChannelText(deadChannelInputField != null ? deadChannelInputField.text : string.Empty);
+        }
+
+        public bool TrySubmitDeadChannelText(string body)
+        {
+            if (!CanUseDeadChannelInput() || string.IsNullOrWhiteSpace(body))
+            {
+                UpdateDeadChannelInputStatus(DeadChannelInputBlockedStatus);
+                return false;
+            }
+
+            if (!deadChannel.TryPost(captureAgent, body))
+            {
+                UpdateDeadChannelInputStatus(DeadChannelInputBlockedStatus);
+                return false;
+            }
+
+            if (deadChannelInputField != null)
+            {
+                deadChannelInputField.text = string.Empty;
+            }
+
+            UpdateDeadChannelInputStatus(DeadChannelInputSentStatus);
+            RefreshSpectatorOverlay();
+            RefreshDeadChannelInput();
+            return true;
+        }
+
+        private void RefreshSpectatorOverlay()
+        {
+            if (spectatorText == null)
+            {
+                return;
+            }
+
+            var isSpectating = spectatorCamera != null && spectatorCamera.IsSpectating;
+            spectatorText.gameObject.SetActive(isSpectating);
+            spectatorText.text = isSpectating ? BuildSpectatorText() : string.Empty;
+        }
+
+        private void RefreshDeadChannelInput()
+        {
+            var canUse = CanUseDeadChannelInput();
+            if (!canUse)
+            {
+                deadChannelInputStatus = DeadChannelInputReadyStatus;
+            }
+
+            if (deadChannelInputField != null)
+            {
+                deadChannelInputField.gameObject.SetActive(canUse);
+                deadChannelInputField.interactable = canUse;
+            }
+
+            if (deadChannelInputHintText != null)
+            {
+                deadChannelInputHintText.gameObject.SetActive(canUse);
+                deadChannelInputHintText.text = canUse ? DeadChannelInputHint : string.Empty;
+            }
+
+            if (deadChannelSendButton != null)
+            {
+                deadChannelSendButton.gameObject.SetActive(canUse);
+                deadChannelSendButton.interactable = canUse;
+            }
+
+            if (deadChannelInputStatusText != null)
+            {
+                deadChannelInputStatusText.gameObject.SetActive(canUse);
+                deadChannelInputStatusText.text = canUse ? deadChannelInputStatus : string.Empty;
+            }
+        }
+
+        private bool CanUseDeadChannelInput()
+        {
+            return captureAgent != null
+                && deadChannel != null
+                && captureAgent.Status == CaptureStatus.Captured
+                && captureAgent.Team != null
+                && captureAgent.Team.Team != TeamId.None;
+        }
+
+        private void UpdateDeadChannelInputStatus(string nextStatus)
+        {
+            deadChannelInputStatus = nextStatus;
+            if (deadChannelInputStatusText != null)
+            {
+                deadChannelInputStatusText.text = CanUseDeadChannelInput() ? deadChannelInputStatus : string.Empty;
+            }
         }
 
         private string BuildStatusText()
