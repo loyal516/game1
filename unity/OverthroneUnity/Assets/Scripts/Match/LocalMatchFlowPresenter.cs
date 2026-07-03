@@ -169,9 +169,14 @@ namespace Overthrone
                 LocalMatchFlowEventType.VictoryCountdownInterrupted =>
                     $"DEFENDER BREAK\n{FormatTeam(flowEvent.Team)} countdown stopped",
                 LocalMatchFlowEventType.RoundEnded =>
-                    $"ROUND END\n{FormatTeam(flowEvent.Team)} wins",
+                    BuildRoundEndedBannerText(flowEvent.Team),
                 _ => string.Empty
             };
+        }
+
+        private static string BuildRoundEndedBannerText(TeamId winner)
+        {
+            return winner == TeamId.None ? "ROUND END\nDRAW" : $"ROUND END\n{FormatTeam(winner)} wins";
         }
 
         private static Color OverlayColorFor(LocalMatchFlowEventType type)

@@ -7,6 +7,7 @@ namespace Overthrone
         public const int VictoryOwnedPointThreshold = 3;
         public const float AttackerGraceSeconds = 5f;
         public const float VictoryCountdownSeconds = 30f;
+        public const float MatchDurationSeconds = 600f;
 
         public static MovementState ResolvePlayerState(int ownedPointCount, bool attackerRallyActive, bool attackerGraceActive)
         {
@@ -71,6 +72,54 @@ namespace Overthrone
         public static bool HasCountdownWon(TeamId countdownTeam, float remainingSeconds)
         {
             return countdownTeam != TeamId.None && remainingSeconds <= 0f;
+        }
+
+        public static float TickMatchTimeRemaining(float previousRemaining, float deltaTime)
+        {
+            return Max(0f, previousRemaining - Max(0f, deltaTime));
+        }
+
+        public static bool HasMatchTimedOut(float remainingSeconds)
+        {
+            return remainingSeconds <= 0f;
+        }
+
+        public static TeamId ResolveForfeitWinner(
+            bool hasBlueRoster,
+            bool hasRedRoster,
+            int activeBlueCount,
+            int activeRedCount)
+        {
+            if (!hasBlueRoster || !hasRedRoster)
+            {
+                return TeamId.None;
+            }
+
+            if (activeBlueCount <= 0 && activeRedCount > 0)
+            {
+                return TeamId.Red;
+            }
+
+            return activeRedCount <= 0 && activeBlueCount > 0 ? TeamId.Blue : TeamId.None;
+        }
+
+        public static TeamId ResolveTimeoutWinner(
+            int blueSurvivorCount,
+            int redSurvivorCount,
+            int blueOwnedCount,
+            int redOwnedCount)
+        {
+            if (blueSurvivorCount != redSurvivorCount)
+            {
+                return blueSurvivorCount > redSurvivorCount ? TeamId.Blue : TeamId.Red;
+            }
+
+            if (blueOwnedCount != redOwnedCount)
+            {
+                return blueOwnedCount > redOwnedCount ? TeamId.Blue : TeamId.Red;
+            }
+
+            return TeamId.None;
         }
 
         private static float Max(float left, float right)

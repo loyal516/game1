@@ -3,6 +3,7 @@ using System.Reflection;
 using NUnit.Framework;
 using Overthrone;
 using UnityEngine;
+using UnityEngine.UI;
 
 public sealed class LocalMatchFlowTests
 {
@@ -130,7 +131,192 @@ public sealed class LocalMatchFlowTests
         }
     }
 
+    [Test]
+    public void ForfeitRequiresBothRostersAndAwardsRemainingActiveTeam()
+    {
+        var blue = CreateAgent("Blue Forfeiter", TeamId.Blue, MovementState.Neutral);
+        var red = CreateAgent("Red Remaining", TeamId.Red, MovementState.Neutral);
+        var managerObject = new GameObject("Forfeit Match Manager");
+        var manager = managerObject.AddComponent<LocalMatchManager>();
+        var events = new List<LocalMatchFlowEvent>();
+
+        try
+        {
+            manager.FlowChanged += events.Add;
+            manager.Configure(System.Array.Empty<CapturePoint>(), new[] { red.Team }, 5f);
+            manager.ApplyMatchRules(0f);
+
+            Assert.AreEqual(LocalMatchPhase.Playing, manager.Phase);
+            Assert.AreEqual(TeamId.None, manager.Winner);
+            Assert.AreEqual(0, events.Count);
+
+            blue.Team.enabled = false;
+            manager.Configure(System.Array.Empty<CapturePoint>(), new[] { blue.Team, red.Team }, 5f);
+            manager.ApplyMatchRules(0f);
+
+            Assert.AreEqual(LocalMatchPhase.Result, manager.Phase);
+            Assert.AreEqual(TeamId.Red, manager.Winner);
+            Assert.AreEqual(1, events.Count);
+            Assert.AreEqual(LocalMatchFlowEventType.RoundEnded, events[0].Type);
+            Assert.AreEqual(TeamId.Red, events[0].Team);
+        }
+        finally
+        {
+            manager.FlowChanged -= events.Add;
+            Object.DestroyImmediate(managerObject);
+            blue.Destroy();
+            red.Destroy();
+        }
+    }
+
+    [Test]
+    public void TimeoutSurvivorCountWinsBeforePointTiebreak()
+    {
+        var blueKing = CreateAgent("Blue King Survivor", TeamId.Blue, MovementState.King);
+        var blueRunner = CreateAgent("Blue Runner Survivor", TeamId.Blue, MovementState.Neutral);
+        var redCaptured = CreateAgent("Red Captured", TeamId.Red, MovementState.Neutral);
+        var redRunner = CreateAgent("Red Runner Survivor", TeamId.Red, MovementState.Neutral);
+        var managerObject = new GameObject("Timeout Survivor Match Manager");
+        var manager = managerObject.AddComponent<LocalMatchManager>();
+
+        try
+        {
+            Assert.IsTrue(blueKing.Agent.TryHold(redCaptured.Agent));
+            Assert.IsTrue(blueKing.Agent.CompleteCapture(redCaptured.Agent));
+
+            manager.Configure(
+                System.Array.Empty<CapturePoint>(),
+                new[] { blueKing.Team, blueRunner.Team, redCaptured.Team, redRunner.Team },
+                1f
+            );
+            manager.ApplyMatchRules(1f);
+
+            Assert.AreEqual(LocalMatchPhase.Result, manager.Phase);
+            Assert.AreEqual(TeamId.Blue, manager.Winner);
+            Assert.AreEqual(0f, manager.MatchTimeRemaining);
+        }
+        finally
+        {
+            Object.DestroyImmediate(managerObject);
+            blueKing.Destroy();
+            blueRunner.Destroy();
+            redCaptured.Destroy();
+            redRunner.Destroy();
+        }
+    }
+
+    [Test]
+    public void TimeoutOwnedPointTiebreakWinsWhenSurvivorsAreEven()
+    {
+        var blue = CreateAgent("Blue Survivor", TeamId.Blue, MovementState.Neutral);
+        var red = CreateAgent("Red Survivor", TeamId.Red, MovementState.Neutral);
+        var fixture = CreateMatchFixture(1f, new[] { blue.Team, red.Team }, TeamId.Blue, TeamId.Blue, TeamId.Red);
+
+        try
+        {
+            fixture.Manager.ApplyMatchRules(1f);
+
+            Assert.AreEqual(LocalMatchPhase.Result, fixture.Manager.Phase);
+            Assert.AreEqual(TeamId.Blue, fixture.Manager.Winner);
+            Assert.AreEqual(0f, fixture.Manager.MatchTimeRemaining);
+        }
+        finally
+        {
+            fixture.Destroy();
+            blue.Destroy();
+            red.Destroy();
+        }
+    }
+
+    [Test]
+    public void TimeoutDoesNotStartFreshVictoryCountdownInSameTick()
+    {
+        var blue = CreateAgent("Blue Timeout Owner", TeamId.Blue, MovementState.Neutral);
+        var red = CreateAgent("Red Timeout Defender", TeamId.Red, MovementState.Neutral);
+        var fixture = CreateMatchFixture(1f, new[] { blue.Team, red.Team }, TeamId.Blue, TeamId.Blue, TeamId.Blue);
+        var events = new List<LocalMatchFlowEvent>();
+
+        try
+        {
+            fixture.Manager.FlowChanged += events.Add;
+            fixture.Manager.ApplyMatchRules(1f);
+
+            Assert.AreEqual(LocalMatchPhase.Result, fixture.Manager.Phase);
+            Assert.AreEqual(TeamId.Blue, fixture.Manager.Winner);
+            Assert.AreEqual(1, events.Count);
+            Assert.AreEqual(LocalMatchFlowEventType.RoundEnded, events[0].Type);
+            Assert.AreEqual(TeamId.None, fixture.Manager.VictoryCountdownTeam);
+        }
+        finally
+        {
+            fixture.Manager.FlowChanged -= events.Add;
+            fixture.Destroy();
+            blue.Destroy();
+            red.Destroy();
+        }
+    }
+
+    [Test]
+    public void MatchManagerRunsAfterCapturePointUpdates()
+    {
+        var managerOrder = typeof(LocalMatchManager).GetCustomAttribute<DefaultExecutionOrder>();
+        var capturePointOrder = typeof(CapturePoint).GetCustomAttribute<DefaultExecutionOrder>();
+
+        Assert.IsNotNull(managerOrder);
+        Assert.Greater(managerOrder.order, capturePointOrder?.order ?? 0);
+    }
+
+    [Test]
+    public void TimeoutDrawKeepsWinnerNoneAndPresenterShowsDraw()
+    {
+        var blue = CreateAgent("Blue Draw Survivor", TeamId.Blue, MovementState.Neutral);
+        var red = CreateAgent("Red Draw Survivor", TeamId.Red, MovementState.Neutral);
+        var fixture = CreateMatchFixture(1f, new[] { blue.Team, red.Team }, TeamId.Blue, TeamId.Red);
+        var events = new List<LocalMatchFlowEvent>();
+        var presenterObject = new GameObject("Draw Flow Presenter");
+        var bannerObject = new GameObject("Draw Flow Banner", typeof(RectTransform), typeof(Text));
+
+        try
+        {
+            fixture.Manager.FlowChanged += events.Add;
+            fixture.Manager.ApplyMatchRules(1f);
+
+            Assert.AreEqual(LocalMatchPhase.Result, fixture.Manager.Phase);
+            Assert.AreEqual(TeamId.None, fixture.Manager.Winner);
+            Assert.AreEqual(1, events.Count);
+            Assert.AreEqual(LocalMatchFlowEventType.RoundEnded, events[0].Type);
+            Assert.AreEqual(TeamId.None, events[0].Team);
+
+            var presenter = presenterObject.AddComponent<LocalMatchFlowPresenter>();
+            var banner = bannerObject.GetComponent<Text>();
+            presenter.Configure(null, banner, null, System.Array.Empty<LocalPlayerTeam>(), null, null);
+            presenter.PlayFlowEvent(events[0]);
+            fixture.Manager.ApplyMatchRules(1f);
+
+            StringAssert.Contains("ROUND END", banner.text);
+            StringAssert.Contains("DRAW", banner.text);
+            Assert.AreEqual(1, events.Count);
+        }
+        finally
+        {
+            fixture.Manager.FlowChanged -= events.Add;
+            Object.DestroyImmediate(bannerObject);
+            Object.DestroyImmediate(presenterObject);
+            fixture.Destroy();
+            blue.Destroy();
+            red.Destroy();
+        }
+    }
+
     private static MatchFixture CreateMatchFixture(params TeamId[] owners)
+    {
+        return CreateMatchFixture(LocalMatchRules.MatchDurationSeconds, null, owners);
+    }
+
+    private static MatchFixture CreateMatchFixture(
+        float durationSeconds,
+        LocalPlayerTeam[] matchParticipants,
+        params TeamId[] owners)
     {
         var points = new CapturePoint[owners.Length];
         for (var index = 0; index < owners.Length; index++)
@@ -144,7 +330,7 @@ public sealed class LocalMatchFlowTests
 
         var managerObject = new GameObject("Flow Match Manager");
         var manager = managerObject.AddComponent<LocalMatchManager>();
-        manager.Configure(points);
+        manager.Configure(points, matchParticipants, durationSeconds);
         return new MatchFixture(managerObject, manager, points);
     }
 

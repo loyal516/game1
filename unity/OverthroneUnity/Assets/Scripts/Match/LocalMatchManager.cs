@@ -3,6 +3,7 @@ using UnityEngine;
 
 namespace Overthrone
 {
+    [DefaultExecutionOrder(100)]
     [DisallowMultipleComponent]
     public sealed class LocalMatchManager : MonoBehaviour
     {
@@ -10,10 +11,12 @@ namespace Overthrone
         [SerializeField] private LocalPlayerTeam[] participants = Array.Empty<LocalPlayerTeam>();
         [SerializeField] private float attackerGraceSeconds = LocalMatchRules.AttackerGraceSeconds;
         [SerializeField] private float victoryCountdownSeconds = LocalMatchRules.VictoryCountdownSeconds;
+        [SerializeField] private float matchDurationSeconds = LocalMatchRules.MatchDurationSeconds;
 
         private readonly System.Collections.Generic.Dictionary<LocalPlayerTeam, float> attackerGraceRemaining = new System.Collections.Generic.Dictionary<LocalPlayerTeam, float>();
         private TeamId victoryCountdownTeam = TeamId.None;
         private float victoryTimeRemaining = LocalMatchRules.VictoryCountdownSeconds;
+        private float matchTimeRemaining = LocalMatchRules.MatchDurationSeconds;
         private TeamId defenderTeam = TeamId.None;
         private float defenderReentryTimeRemaining;
 
@@ -23,6 +26,8 @@ namespace Overthrone
         public int RedOwnedCount => GetOwnedCount(TeamId.Red);
         public TeamId VictoryCountdownTeam => victoryCountdownTeam;
         public float VictoryTimeRemaining => victoryTimeRemaining;
+        public float MatchDurationSeconds => matchDurationSeconds;
+        public float MatchTimeRemaining => matchTimeRemaining;
         public LocalMatchPhase Phase { get; private set; } = LocalMatchPhase.Playing;
         public TeamId DefenderTeam => defenderTeam;
         public float DefenderReentryTimeRemaining => defenderReentryTimeRemaining;
@@ -36,10 +41,17 @@ namespace Overthrone
 
         public void Configure(CapturePoint[] points, LocalPlayerTeam[] matchParticipants = null)
         {
+            Configure(points, matchParticipants, matchDurationSeconds);
+        }
+
+        public void Configure(CapturePoint[] points, LocalPlayerTeam[] matchParticipants, float durationSeconds)
+        {
             capturePoints = points ?? Array.Empty<CapturePoint>();
             participants = matchParticipants ?? Array.Empty<LocalPlayerTeam>();
+            matchDurationSeconds = Mathf.Max(0f, durationSeconds);
             victoryCountdownTeam = TeamId.None;
             victoryTimeRemaining = victoryCountdownSeconds;
+            matchTimeRemaining = matchDurationSeconds;
             defenderTeam = TeamId.None;
             defenderReentryTimeRemaining = 0f;
             Winner = TeamId.None;
@@ -50,6 +62,9 @@ namespace Overthrone
 
         private void Awake()
         {
+            matchDurationSeconds = Mathf.Max(0f, matchDurationSeconds);
+            matchTimeRemaining = matchDurationSeconds;
+
             if (participants == null || participants.Length == 0)
             {
                 participants = FindObjectsByType<LocalPlayerTeam>(FindObjectsSortMode.None);
@@ -64,14 +79,40 @@ namespace Overthrone
         public void ApplyMatchRules(float deltaTime)
         {
             deltaTime = Mathf.Max(0f, deltaTime);
+            if (Phase == LocalMatchPhase.Result)
+            {
+                return;
+            }
+
             ApplyAllCapturedVictory();
             if (Phase == LocalMatchPhase.Result)
             {
                 return;
             }
 
+            ApplyForfeitVictory();
+            if (Phase == LocalMatchPhase.Result)
+            {
+                return;
+            }
+
+            if (ShouldResolveTimeoutBeforeStartingCountdown(deltaTime))
+            {
+                ApplyMatchTimeout(deltaTime);
+                if (Phase == LocalMatchPhase.Result)
+                {
+                    return;
+                }
+            }
+
             ApplyVictoryCountdown(deltaTime);
 
+            if (Phase == LocalMatchPhase.Result)
+            {
+                return;
+            }
+
+            ApplyMatchTimeout(deltaTime);
             if (Phase == LocalMatchPhase.Result)
             {
                 return;
@@ -226,18 +267,40 @@ namespace Overthrone
                 return;
             }
 
-            Winner = captureWinner;
-            Phase = LocalMatchPhase.Result;
-            victoryCountdownTeam = TeamId.None;
-            victoryTimeRemaining = victoryCountdownSeconds;
-            defenderTeam = TeamId.None;
-            defenderReentryTimeRemaining = 0f;
-            EmitFlowEvent(new LocalMatchFlowEvent(
-                LocalMatchFlowEventType.RoundEnded,
-                Winner,
-                TeamId.None,
-                0f
-            ));
+            CompleteRound(captureWinner);
+        }
+
+        private void ApplyForfeitVictory()
+        {
+            if (Winner != TeamId.None)
+            {
+                return;
+            }
+
+            var forfeitWinner = ResolveForfeitWinner();
+            if (forfeitWinner == TeamId.None)
+            {
+                return;
+            }
+
+            CompleteRound(forfeitWinner);
+        }
+
+        private void ApplyMatchTimeout(float deltaTime)
+        {
+            matchTimeRemaining = LocalMatchRules.TickMatchTimeRemaining(matchTimeRemaining, deltaTime);
+            if (!LocalMatchRules.HasMatchTimedOut(matchTimeRemaining))
+            {
+                return;
+            }
+
+            CompleteRound(ResolveTimeoutWinner());
+        }
+
+        private bool ShouldResolveTimeoutBeforeStartingCountdown(float deltaTime)
+        {
+            return victoryCountdownTeam == TeamId.None
+                && LocalMatchRules.HasMatchTimedOut(LocalMatchRules.TickMatchTimeRemaining(matchTimeRemaining, deltaTime));
         }
 
         private TeamId ResolveAllCapturedWinner()
@@ -274,6 +337,71 @@ namespace Overthrone
             }
 
             return hasBlue && hasRed && redAllCaptured ? TeamId.Blue : TeamId.None;
+        }
+
+        private TeamId ResolveForfeitWinner()
+        {
+            var hasBlueRoster = false;
+            var hasRedRoster = false;
+            var activeBlueCount = 0;
+            var activeRedCount = 0;
+
+            foreach (var participant in participants)
+            {
+                if (participant == null || participant.Team == TeamId.None)
+                {
+                    continue;
+                }
+
+                if (participant.Team == TeamId.Blue)
+                {
+                    hasBlueRoster = true;
+                    activeBlueCount += participant.isActiveAndEnabled ? 1 : 0;
+                }
+                else if (participant.Team == TeamId.Red)
+                {
+                    hasRedRoster = true;
+                    activeRedCount += participant.isActiveAndEnabled ? 1 : 0;
+                }
+            }
+
+            return LocalMatchRules.ResolveForfeitWinner(hasBlueRoster, hasRedRoster, activeBlueCount, activeRedCount);
+        }
+
+        private TeamId ResolveTimeoutWinner()
+        {
+            var blueSurvivorCount = 0;
+            var redSurvivorCount = 0;
+
+            foreach (var participant in participants)
+            {
+                if (participant == null || !participant.isActiveAndEnabled)
+                {
+                    continue;
+                }
+
+                var captureAgent = participant.GetComponent<PlayerCaptureAgent>();
+                if (captureAgent != null && captureAgent.Status == CaptureStatus.Captured)
+                {
+                    continue;
+                }
+
+                if (participant.Team == TeamId.Blue)
+                {
+                    blueSurvivorCount++;
+                }
+                else if (participant.Team == TeamId.Red)
+                {
+                    redSurvivorCount++;
+                }
+            }
+
+            return LocalMatchRules.ResolveTimeoutWinner(
+                blueSurvivorCount,
+                redSurvivorCount,
+                BlueOwnedCount,
+                RedOwnedCount
+            );
         }
 
         private void ApplyParticipantState(
@@ -387,12 +515,30 @@ namespace Overthrone
             attackerGraceSeconds = Mathf.Max(0f, attackerGraceSeconds);
             victoryCountdownSeconds = Mathf.Max(0f, victoryCountdownSeconds);
             victoryTimeRemaining = Mathf.Max(0f, victoryTimeRemaining);
+            matchDurationSeconds = Mathf.Max(0f, matchDurationSeconds);
+            matchTimeRemaining = Mathf.Max(0f, matchTimeRemaining);
             defenderReentryTimeRemaining = Mathf.Max(0f, defenderReentryTimeRemaining);
         }
 
         private static TeamId OpposingTeam(TeamId team)
         {
             return team == TeamId.Blue ? TeamId.Red : team == TeamId.Red ? TeamId.Blue : TeamId.None;
+        }
+
+        private void CompleteRound(TeamId winner)
+        {
+            Winner = winner;
+            Phase = LocalMatchPhase.Result;
+            victoryCountdownTeam = TeamId.None;
+            victoryTimeRemaining = victoryCountdownSeconds;
+            defenderTeam = TeamId.None;
+            defenderReentryTimeRemaining = 0f;
+            EmitFlowEvent(new LocalMatchFlowEvent(
+                LocalMatchFlowEventType.RoundEnded,
+                Winner,
+                TeamId.None,
+                0f
+            ));
         }
 
         private void EmitFlowEvent(LocalMatchFlowEvent flowEvent)
