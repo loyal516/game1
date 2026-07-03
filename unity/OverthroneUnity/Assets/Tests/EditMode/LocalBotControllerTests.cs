@@ -146,6 +146,87 @@ public sealed class LocalBotControllerTests
     }
 
     [Test]
+    public void HeardEnemyNoiseAtCurrentPositionStartsQuietSearch()
+    {
+        var bot = CreateAgent("Noise Search Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Close Noise Enemy", TeamId.Red, MovementState.Attacker, Vector3.zero);
+        var pointObject = CreateCapturePoint("Ignored During Search Point", new Vector3(0f, 0f, 10f));
+        AIHearingSensor hearingSensor = null;
+
+        try
+        {
+            hearingSensor = AddEnabledHearingSensor(bot.GameObject);
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team }, new[] { bot.Agent, enemy.Agent }, null);
+
+            Assert.IsTrue(hearingSensor.TryRememberNoise(new NoiseEvent(enemy.GameObject, bot.GameObject.transform.position, 25f, MovementState.Attacker)));
+            controller.Tick(0.1f);
+
+            Assert.IsTrue(controller.IsInvestigatingNoise);
+            Assert.IsTrue(controller.IsSearchingNoise);
+            Assert.IsFalse(controller.IsGuardingNoise);
+            Assert.IsNull(controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            Assert.Greater(bot.Input.Move.sqrMagnitude, 0.01f);
+            Assert.IsFalse(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void NoiseSearchAndGuardReturnToCapturePointAfterConsumedNoise()
+    {
+        var bot = CreateAgent("Noise Resume Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Consumed Noise Enemy", TeamId.Red, MovementState.Attacker, Vector3.zero);
+        var pointObject = CreateCapturePoint("Resume Capture Point", new Vector3(0f, 0f, 10f));
+        AIHearingSensor hearingSensor = null;
+
+        try
+        {
+            hearingSensor = AddEnabledHearingSensor(bot.GameObject);
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team }, new[] { bot.Agent, enemy.Agent }, null);
+
+            Assert.IsTrue(hearingSensor.TryRememberNoise(new NoiseEvent(enemy.GameObject, bot.GameObject.transform.position, 25f, MovementState.Attacker)));
+            controller.Tick(0.1f);
+            Assert.IsTrue(controller.IsSearchingNoise);
+
+            TickRepeated(controller, 25, 0.1f);
+
+            Assert.IsFalse(controller.IsInvestigatingNoise);
+            Assert.IsFalse(controller.IsSearchingNoise);
+            Assert.IsTrue(controller.IsGuardingNoise);
+            Assert.IsNull(controller.CurrentPointTarget);
+            Assert.AreEqual(Vector2.zero, bot.Input.Move);
+            Assert.IsFalse(bot.Input.SprintHeld);
+
+            TickRepeated(controller, 13, 0.1f);
+
+            Assert.IsFalse(controller.IsInvestigatingNoise);
+            Assert.IsFalse(controller.IsSearchingNoise);
+            Assert.IsFalse(controller.IsGuardingNoise);
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.Greater(bot.Input.Move.y, 0.99f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
     public void DirectFallbackUsesDestinationVectorWhenNoNavMeshPathExists()
     {
         var bot = CreateAgent("Direct Fallback Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
@@ -387,6 +468,14 @@ public sealed class LocalBotControllerTests
     private static AIHearingSensor AddEnabledHearingSensor(GameObject target)
     {
         return target.AddComponent<AIHearingSensor>();
+    }
+
+    private static void TickRepeated(LocalBotController controller, int count, float deltaTime)
+    {
+        for (var index = 0; index < count; index += 1)
+        {
+            controller.Tick(deltaTime);
+        }
     }
 
     private static TemporaryNavMesh CreateTemporaryNavMeshWithWall()

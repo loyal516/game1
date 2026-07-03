@@ -29,6 +29,10 @@ namespace Overthrone
         [SerializeField] private float navMeshSampleDistance = 1.5f;
         [SerializeField] private float navMeshCornerArrivalDistance = 0.35f;
         [SerializeField] private float enemyNoiseMemorySeconds = 4f;
+        [SerializeField] private float noiseSearchDurationSeconds = 2.5f;
+        [SerializeField] private float noiseGuardDurationSeconds = 1.25f;
+        [SerializeField] private float noiseSearchRadius = 2f;
+        [SerializeField] private float noiseSearchWaypointSeconds = 0.65f;
 
         private NavMeshPath navMeshPath;
         private PlayerInputReader input;
@@ -38,10 +42,20 @@ namespace Overthrone
         private AIHearingSensor hearingSensor;
         private Vector3 rememberedEnemyNoisePosition;
         private float rememberedEnemyNoiseTimer;
+        private Vector3 noiseSearchCenter;
+        private Vector3 noiseSearchWaypoint;
+        private Vector3 consumedEnemyNoisePosition;
+        private float noiseSearchTimer;
+        private float noiseGuardTimer;
+        private float noiseSearchWaypointTimer;
+        private int noiseSearchStep;
+        private bool hasConsumedEnemyNoise;
 
         public CapturePoint CurrentPointTarget { get; private set; }
         public PlayerCaptureAgent CurrentAgentTarget { get; private set; }
         public bool IsInvestigatingNoise { get; private set; }
+        public bool IsSearchingNoise { get; private set; }
+        public bool IsGuardingNoise { get; private set; }
         public Vector3 CurrentNoiseTarget { get; private set; }
         public LocalBotMoveMode LastMoveMode { get; private set; }
         public Vector3 LastSteeringTarget { get; private set; }
@@ -76,6 +90,8 @@ namespace Overthrone
             CurrentPointTarget = null;
             CurrentAgentTarget = null;
             IsInvestigatingNoise = false;
+            IsSearchingNoise = false;
+            IsGuardingNoise = false;
             CurrentNoiseTarget = transform.position;
             ClearSteeringTelemetry();
 
@@ -135,10 +151,27 @@ namespace Overthrone
                 return;
             }
 
+            if (RunNoiseSearch(deltaTime))
+            {
+                return;
+            }
+
+            if (RunNoiseGuard(deltaTime))
+            {
+                return;
+            }
+
             if (TryGetEnemyNoisePosition(out var noisePosition))
             {
                 IsInvestigatingNoise = true;
                 CurrentNoiseTarget = noisePosition;
+                if (IsAtPosition(noisePosition, pointArrivalDistance))
+                {
+                    StartNoiseSearch(noisePosition);
+                    RunNoiseSearch(deltaTime);
+                    return;
+                }
+
                 MoveToward(noisePosition, deltaTime, true);
                 return;
             }
@@ -262,8 +295,16 @@ namespace Overthrone
             rememberedEnemyNoiseTimer = Mathf.Max(0f, rememberedEnemyNoiseTimer - deltaTime);
             if (TryReadCurrentEnemyNoise(out var noisePosition))
             {
+                var shouldResetSearch = rememberedEnemyNoiseTimer <= 0f
+                    || Vector3.Distance(rememberedEnemyNoisePosition, noisePosition) > 0.05f;
+
                 rememberedEnemyNoisePosition = noisePosition;
                 rememberedEnemyNoiseTimer = enemyNoiseMemorySeconds;
+                hasConsumedEnemyNoise = false;
+                if (shouldResetSearch)
+                {
+                    ResetNoiseSearch(noisePosition);
+                }
             }
         }
 
@@ -293,7 +334,107 @@ namespace Overthrone
             }
 
             noisePosition = hearingSensor.LastHeardPosition;
+            if (hasConsumedEnemyNoise && Vector3.Distance(consumedEnemyNoisePosition, noisePosition) <= 0.05f)
+            {
+                return false;
+            }
+
             return true;
+        }
+
+        private bool RunNoiseSearch(float deltaTime)
+        {
+            if (noiseSearchTimer <= 0f)
+            {
+                return false;
+            }
+
+            noiseSearchTimer = Mathf.Max(0f, noiseSearchTimer - deltaTime);
+            if (noiseSearchTimer <= 0f)
+            {
+                noiseGuardTimer = noiseGuardDurationSeconds;
+                return RunNoiseGuard(deltaTime);
+            }
+
+            IsSearchingNoise = true;
+            CurrentNoiseTarget = noiseSearchWaypoint;
+            noiseSearchWaypointTimer = Mathf.Max(0f, noiseSearchWaypointTimer - deltaTime);
+            if (noiseSearchWaypointTimer <= 0f || IsAtPosition(noiseSearchWaypoint, pointArrivalDistance))
+            {
+                ChooseNextNoiseSearchWaypoint();
+                CurrentNoiseTarget = noiseSearchWaypoint;
+            }
+
+            MoveToward(noiseSearchWaypoint, deltaTime, false);
+            return true;
+        }
+
+        private bool RunNoiseGuard(float deltaTime)
+        {
+            if (noiseGuardTimer <= 0f)
+            {
+                return false;
+            }
+
+            IsGuardingNoise = true;
+            CurrentNoiseTarget = noiseSearchCenter;
+            noiseGuardTimer = Mathf.Max(0f, noiseGuardTimer - deltaTime);
+            input.SetManualInput(Vector2.zero);
+
+            if (noiseGuardTimer <= 0f)
+            {
+                ClearNoiseMemory();
+            }
+
+            return true;
+        }
+
+        private void StartNoiseSearch(Vector3 center)
+        {
+            if (noiseSearchTimer > 0f || noiseGuardTimer > 0f)
+            {
+                return;
+            }
+
+            noiseSearchCenter = center;
+            noiseSearchTimer = noiseSearchDurationSeconds;
+            ChooseNextNoiseSearchWaypoint();
+        }
+
+        private void ResetNoiseSearch(Vector3 center)
+        {
+            noiseSearchCenter = center;
+            noiseSearchTimer = 0f;
+            noiseGuardTimer = 0f;
+            noiseSearchWaypointTimer = 0f;
+            noiseSearchStep = 0;
+            noiseSearchWaypoint = center;
+        }
+
+        private void ClearNoiseMemory()
+        {
+            consumedEnemyNoisePosition = rememberedEnemyNoisePosition;
+            hasConsumedEnemyNoise = true;
+            rememberedEnemyNoiseTimer = 0f;
+            noiseSearchTimer = 0f;
+            noiseGuardTimer = 0f;
+            noiseSearchWaypointTimer = 0f;
+            noiseSearchStep = 0;
+        }
+
+        private void ChooseNextNoiseSearchWaypoint()
+        {
+            noiseSearchWaypointTimer = noiseSearchWaypointSeconds;
+            noiseSearchStep++;
+            var phase = noiseSearchStep % 4;
+            var offset = phase switch
+            {
+                0 => Vector3.forward,
+                1 => Vector3.right,
+                2 => Vector3.back,
+                _ => Vector3.left
+            };
+            noiseSearchWaypoint = noiseSearchCenter + offset * noiseSearchRadius;
         }
 
         private CapturePoint ChooseCapturePoint()
@@ -332,6 +473,13 @@ namespace Overthrone
                 : CaptureInteractionRules.TackleRange;
             return CaptureInteractionRules.IsInRange(transform.position, target.transform.position, range)
                 && CaptureInteractionRules.IsInsideForwardCone(transform, target.transform.position, CaptureInteractionRules.TackleAngleDegrees);
+        }
+
+        private bool IsAtPosition(Vector3 worldPosition, float distance)
+        {
+            var offset = worldPosition - transform.position;
+            offset.y = 0f;
+            return offset.magnitude <= distance;
         }
 
         private void MoveToward(Vector3 worldPosition, float deltaTime, bool sprint)
@@ -436,6 +584,10 @@ namespace Overthrone
             navMeshSampleDistance = Mathf.Max(0.1f, navMeshSampleDistance);
             navMeshCornerArrivalDistance = Mathf.Max(0.05f, navMeshCornerArrivalDistance);
             enemyNoiseMemorySeconds = Mathf.Max(0f, enemyNoiseMemorySeconds);
+            noiseSearchDurationSeconds = Mathf.Max(0f, noiseSearchDurationSeconds);
+            noiseGuardDurationSeconds = Mathf.Max(0f, noiseGuardDurationSeconds);
+            noiseSearchRadius = Mathf.Max(0f, noiseSearchRadius);
+            noiseSearchWaypointSeconds = Mathf.Max(0.05f, noiseSearchWaypointSeconds);
         }
     }
 }
