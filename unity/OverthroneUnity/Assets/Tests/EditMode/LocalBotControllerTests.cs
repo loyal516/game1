@@ -284,6 +284,72 @@ public sealed class LocalBotControllerTests
     }
 
     [Test]
+    public void DirectFallbackAvoidsParticipantBlockingForwardPath()
+    {
+        var bot = CreateAgent("Avoidance Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var blocker = CreateAgent("Forward Blocker", TeamId.Blue, MovementState.Neutral, new Vector3(0f, 0f, 1.25f));
+        var pointObject = CreateCapturePoint("Avoidance Target", new Vector3(0f, 0f, 8f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, blocker.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.IsTrue(controller.IsAvoidingDynamicObstacle);
+            Assert.Greater(controller.LastAvoidanceOffset.sqrMagnitude, 0.01f);
+            Assert.Greater(Mathf.Abs(bot.Input.Move.x), 0.1f);
+            Assert.Greater(bot.Input.Move.y, 0.5f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            blocker.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void DirectFallbackIgnoresParticipantBehindOrOutsideLookahead()
+    {
+        var bot = CreateAgent("Unblocked Avoidance Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var behindBlocker = CreateAgent("Behind Blocker", TeamId.Blue, MovementState.Neutral, new Vector3(0f, 0f, -1f));
+        var farBlocker = CreateAgent("Far Blocker", TeamId.Blue, MovementState.Neutral, new Vector3(0f, 0f, 3f));
+        var pointObject = CreateCapturePoint("Unblocked Avoidance Target", new Vector3(0f, 0f, 8f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, behindBlocker.Team, farBlocker.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.IsFalse(controller.IsAvoidingDynamicObstacle);
+            AssertVectorApproximately(Vector3.zero, controller.LastAvoidanceOffset);
+            Assert.AreEqual(0f, bot.Input.Move.x, DirectionTolerance);
+            Assert.Greater(bot.Input.Move.y, 0.99f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            behindBlocker.Destroy();
+            farBlocker.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
     public void DirectFallbackStopsAtArrivalDistanceBoundary()
     {
         var bot = CreateAgent("Arrival Boundary Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
@@ -368,6 +434,39 @@ public sealed class LocalBotControllerTests
     }
 
     [Test]
+    public void NavMeshPathAvoidsParticipantBlockingForwardPath()
+    {
+        var navMesh = CreateTemporaryFlatNavMesh();
+        var bot = CreateAgent("NavMesh Avoidance Bot", TeamId.Blue, MovementState.Neutral, new Vector3(0f, 0f, -3f));
+        var blocker = CreateAgent("NavMesh Forward Blocker", TeamId.Blue, MovementState.Neutral, new Vector3(0f, 0f, -1.75f));
+        var pointObject = CreateCapturePoint("NavMesh Avoidance Target", new Vector3(0f, 0f, 3f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, blocker.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.NavMeshPath, controller.LastMoveMode);
+            Assert.IsTrue(controller.IsAvoidingDynamicObstacle);
+            Assert.Greater(controller.LastAvoidanceOffset.sqrMagnitude, 0.01f);
+            Assert.Greater(Mathf.Abs(bot.Input.Move.x), 0.1f);
+            Assert.Greater(bot.Input.Move.y, 0.5f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            navMesh.Destroy();
+            bot.Destroy();
+            blocker.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
     public void TickClearsManualInputWhenNullConfigurationLeavesNoFallbackTarget()
     {
         var bot = CreateAgent("Null Config Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
@@ -413,6 +512,40 @@ public sealed class LocalBotControllerTests
             Assert.AreEqual(CaptureStatus.Holding, bot.Agent.Status);
             Assert.AreEqual(CaptureStatus.Held, target.Agent.Status);
             Assert.AreEqual(target.Agent, controller.CurrentAgentTarget);
+        }
+        finally
+        {
+            Object.DestroyImmediate(captureSystemObject);
+            bot.Destroy();
+            target.Destroy();
+        }
+    }
+
+    [Test]
+    public void AttackerBotDoesNotAvoidChaseTargetIncludedInParticipants()
+    {
+        var bot = CreateAgent("Attacker Ignore Target Bot", TeamId.Blue, MovementState.Attacker, Vector3.zero);
+        var target = CreateAgent("Ignored Obstacle Target", TeamId.Red, MovementState.Neutral, Vector3.forward * 1.11f);
+        var captureSystemObject = new GameObject("Ignored Obstacle Capture System");
+        var captureSystem = captureSystemObject.AddComponent<LocalCaptureSystem>();
+
+        try
+        {
+            var agents = new[] { bot.Agent, target.Agent };
+            captureSystem.Configure(bot.Agent, agents);
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(System.Array.Empty<CapturePoint>(), new[] { bot.Team, target.Team }, agents, captureSystem);
+
+            controller.Tick(0.1f);
+
+            Assert.AreEqual(target.Agent, controller.CurrentAgentTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            Assert.IsFalse(controller.IsAvoidingDynamicObstacle);
+            AssertVectorApproximately(Vector3.zero, controller.LastAvoidanceOffset);
+            Assert.AreEqual(0f, bot.Input.Move.x, DirectionTolerance);
+            Assert.Greater(bot.Input.Move.y, 0.99f);
+            Assert.AreEqual(CaptureStatus.Holding, bot.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Held, target.Agent.Status);
         }
         finally
         {
@@ -495,6 +628,30 @@ public sealed class LocalBotControllerTests
                 transform = Matrix4x4.TRS(new Vector3(0f, 0.6f, 0f), Quaternion.identity, Vector3.one),
                 size = new Vector3(1.2f, 2f, 5f),
                 area = 1
+            }
+        };
+
+        var data = NavMeshBuilder.BuildNavMeshData(
+            NavMesh.GetSettingsByID(0),
+            sources,
+            new Bounds(Vector3.zero, new Vector3(10f, 4f, 10f)),
+            Vector3.zero,
+            Quaternion.identity
+        );
+        Assert.IsNotNull(data);
+        return new TemporaryNavMesh(data, NavMesh.AddNavMeshData(data));
+    }
+
+    private static TemporaryNavMesh CreateTemporaryFlatNavMesh()
+    {
+        var sources = new List<NavMeshBuildSource>
+        {
+            new NavMeshBuildSource
+            {
+                shape = NavMeshBuildSourceShape.Box,
+                transform = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one),
+                size = new Vector3(8f, 0.2f, 8f),
+                area = 0
             }
         };
 

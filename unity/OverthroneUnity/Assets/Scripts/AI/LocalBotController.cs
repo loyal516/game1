@@ -28,6 +28,9 @@ namespace Overthrone
         [SerializeField] private float turnDegreesPerSecond = 540f;
         [SerializeField] private float navMeshSampleDistance = 1.5f;
         [SerializeField] private float navMeshCornerArrivalDistance = 0.35f;
+        [SerializeField] private float dynamicObstacleLookahead = 2.5f;
+        [SerializeField] private float dynamicObstacleRadius = 0.8f;
+        [SerializeField] private float dynamicObstacleAvoidanceStrength = 1.1f;
         [SerializeField] private float enemyNoiseMemorySeconds = 4f;
         [SerializeField] private float noiseSearchDurationSeconds = 2.5f;
         [SerializeField] private float noiseGuardDurationSeconds = 1.25f;
@@ -59,6 +62,8 @@ namespace Overthrone
         public Vector3 CurrentNoiseTarget { get; private set; }
         public LocalBotMoveMode LastMoveMode { get; private set; }
         public Vector3 LastSteeringTarget { get; private set; }
+        public bool IsAvoidingDynamicObstacle { get; private set; }
+        public Vector3 LastAvoidanceOffset { get; private set; }
 
         public void Configure(
             CapturePoint[] points,
@@ -127,7 +132,7 @@ namespace Overthrone
                     return;
                 }
 
-                MoveToward(heldEnemy.transform.position, deltaTime, true);
+                MoveToward(heldEnemy.transform.position, deltaTime, true, heldEnemy.transform);
                 return;
             }
 
@@ -135,7 +140,7 @@ namespace Overthrone
             if (allyToRescue != null)
             {
                 CurrentAgentTarget = allyToRescue;
-                MoveToward(allyToRescue.transform.position, deltaTime, true);
+                MoveToward(allyToRescue.transform.position, deltaTime, true, allyToRescue.transform);
                 return;
             }
 
@@ -143,7 +148,7 @@ namespace Overthrone
             if (enemyToChase != null)
             {
                 CurrentAgentTarget = enemyToChase;
-                MoveToward(enemyToChase.transform.position, deltaTime, true);
+                MoveToward(enemyToChase.transform.position, deltaTime, true, enemyToChase.transform);
                 if (IsInsideTackleRange(enemyToChase))
                 {
                     captureSystem?.TryTackle(agent);
@@ -482,7 +487,7 @@ namespace Overthrone
             return offset.magnitude <= distance;
         }
 
-        private void MoveToward(Vector3 worldPosition, float deltaTime, bool sprint)
+        private void MoveToward(Vector3 worldPosition, float deltaTime, bool sprint, Transform ignoredDynamicObstacle = null)
         {
             var finalOffset = worldPosition - transform.position;
             finalOffset.y = 0f;
@@ -501,11 +506,67 @@ namespace Overthrone
                 return;
             }
 
-            var normalized = direction.normalized;
+            var normalized = ApplyDynamicObstacleAvoidance(direction.normalized, ignoredDynamicObstacle);
             var targetRotation = Quaternion.LookRotation(normalized, Vector3.up);
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, turnDegreesPerSecond * deltaTime);
             var local = transform.InverseTransformDirection(normalized);
             input.SetManualInput(new Vector2(local.x, local.z), sprint);
+        }
+
+        private Vector3 ApplyDynamicObstacleAvoidance(Vector3 desiredDirection, Transform ignoredDynamicObstacle)
+        {
+            LastAvoidanceOffset = CalculateDynamicObstacleAvoidance(desiredDirection, ignoredDynamicObstacle);
+            IsAvoidingDynamicObstacle = LastAvoidanceOffset.sqrMagnitude > 0.0001f;
+            if (!IsAvoidingDynamicObstacle)
+            {
+                return desiredDirection;
+            }
+
+            return (desiredDirection + LastAvoidanceOffset).normalized;
+        }
+
+        private Vector3 CalculateDynamicObstacleAvoidance(Vector3 desiredDirection, Transform ignoredDynamicObstacle)
+        {
+            var lookahead = Mathf.Max(0.05f, dynamicObstacleLookahead);
+            var radius = Mathf.Max(0.05f, dynamicObstacleRadius);
+            var avoidanceOffset = Vector3.zero;
+            foreach (var participant in participants)
+            {
+                if (participant == null || participant == team || participant.gameObject == gameObject || participant.transform == ignoredDynamicObstacle)
+                {
+                    continue;
+                }
+
+                var obstacleOffset = participant.transform.position - transform.position;
+                obstacleOffset.y = 0f;
+                var obstacleSqrDistance = obstacleOffset.sqrMagnitude;
+                if (obstacleSqrDistance <= 0.0001f || obstacleSqrDistance > lookahead * lookahead)
+                {
+                    continue;
+                }
+
+                var forwardDistance = Vector3.Dot(obstacleOffset, desiredDirection);
+                if (forwardDistance <= 0f || forwardDistance > lookahead)
+                {
+                    continue;
+                }
+
+                var lateralOffset = obstacleOffset - desiredDirection * forwardDistance;
+                var lateralDistance = lateralOffset.magnitude;
+                if (lateralDistance > radius)
+                {
+                    continue;
+                }
+
+                var right = Vector3.Cross(Vector3.up, desiredDirection);
+                var obstacleIsRight = lateralDistance <= 0.001f || Vector3.Dot(lateralOffset, right) > 0f;
+                var avoidanceDirection = obstacleIsRight ? -right : right;
+                var distanceWeight = 1f - forwardDistance / lookahead;
+                var lateralWeight = 1f - lateralDistance / radius;
+                avoidanceOffset += avoidanceDirection * (dynamicObstacleAvoidanceStrength * distanceWeight * lateralWeight);
+            }
+
+            return Vector3.ClampMagnitude(avoidanceOffset, dynamicObstacleAvoidanceStrength);
         }
 
         private Vector3 ResolveSteeringTarget(Vector3 worldPosition)
@@ -565,6 +626,8 @@ namespace Overthrone
         {
             LastMoveMode = LocalBotMoveMode.None;
             LastSteeringTarget = transform.position;
+            IsAvoidingDynamicObstacle = false;
+            LastAvoidanceOffset = Vector3.zero;
         }
 
         private void ResolveReferences()
@@ -583,6 +646,9 @@ namespace Overthrone
             turnDegreesPerSecond = Mathf.Max(0f, turnDegreesPerSecond);
             navMeshSampleDistance = Mathf.Max(0.1f, navMeshSampleDistance);
             navMeshCornerArrivalDistance = Mathf.Max(0.05f, navMeshCornerArrivalDistance);
+            dynamicObstacleLookahead = Mathf.Max(0.05f, dynamicObstacleLookahead);
+            dynamicObstacleRadius = Mathf.Max(0.05f, dynamicObstacleRadius);
+            dynamicObstacleAvoidanceStrength = Mathf.Max(0f, dynamicObstacleAvoidanceStrength);
             enemyNoiseMemorySeconds = Mathf.Max(0f, enemyNoiseMemorySeconds);
             noiseSearchDurationSeconds = Mathf.Max(0f, noiseSearchDurationSeconds);
             noiseGuardDurationSeconds = Mathf.Max(0f, noiseGuardDurationSeconds);
