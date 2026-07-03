@@ -1,8 +1,26 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 
 namespace Overthrone
 {
+    public readonly struct LocalPingResponse
+    {
+        public LocalPingResponse(string responderName, TeamId team, LocalPingType type, string label)
+        {
+            ResponderName = string.IsNullOrWhiteSpace(responderName) ? "Unknown" : responderName;
+            Team = team;
+            Type = type;
+            Label = string.IsNullOrWhiteSpace(label) ? type.ToString() : label;
+        }
+
+        public string ResponderName { get; }
+        public TeamId Team { get; }
+        public LocalPingType Type { get; }
+        public string Label { get; }
+    }
+
     [DisallowMultipleComponent]
     public sealed class LocalPingSystem : MonoBehaviour
     {
@@ -20,6 +38,7 @@ namespace Overthrone
         private bool wheelOpen;
         private float pingHoldElapsed;
         private Vector2 wheelSelection;
+        private readonly List<LocalPingResponse> responses = new List<LocalPingResponse>();
 
         public bool HasActivePing => activeTimeRemaining > 0f;
         public LocalPingEvent CurrentPing { get; private set; }
@@ -27,6 +46,8 @@ namespace Overthrone
         public bool IsWheelOpen => wheelOpen;
         public string CurrentWheelSelectionLabel => LabelForWheelType(CurrentWheelSelectionType);
         public LocalPingType CurrentWheelSelectionType => ResolveWheelType(wheelSelection);
+        public int ResponseCount => responses.Count;
+        public LocalPingResponse LatestResponse => responses.Count > 0 ? responses[responses.Count - 1] : default;
 
         public void Configure(
             PlayerInputReader input,
@@ -62,10 +83,15 @@ namespace Overthrone
             if (activeTimeRemaining <= 0f)
             {
                 activeTimeRemaining = 0f;
+                responses.Clear();
                 return;
             }
 
             activeTimeRemaining = Mathf.Max(0f, activeTimeRemaining - Mathf.Max(0f, deltaTime));
+            if (activeTimeRemaining <= 0f)
+            {
+                responses.Clear();
+            }
         }
 
         public void TickPingInput(float deltaTime, bool pressed, bool held, bool released, Vector2 selection)
@@ -126,6 +152,18 @@ namespace Overthrone
         {
             CurrentPing = ping;
             activeTimeRemaining = ping.Duration > 0f ? ping.Duration : Mathf.Max(0f, pingDurationSeconds);
+            responses.Clear();
+        }
+
+        public bool SubmitResponse(string responderName, LocalPingType type, TeamId team = TeamId.None)
+        {
+            if (!HasActivePing)
+            {
+                return false;
+            }
+
+            responses.Add(new LocalPingResponse(responderName, team, type, LabelForWheelType(type)));
+            return true;
         }
 
         public string BuildVisibleLog()
@@ -135,7 +173,28 @@ namespace Overthrone
                 return string.Empty;
             }
 
-            return $"PING  {CurrentPing.Label}  {Mathf.CeilToInt(ActiveTimeRemaining)}s";
+            var builder = new StringBuilder($"PING  {CurrentPing.Label}  {Mathf.CeilToInt(ActiveTimeRemaining)}s");
+            if (responses.Count == 0)
+            {
+                return builder.ToString();
+            }
+
+            builder.AppendLine();
+            builder.Append("RESPONSES  ");
+            for (var i = 0; i < responses.Count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append(" | ");
+                }
+
+                AppendResponseLabel(builder, responses[i]);
+            }
+
+            builder.AppendLine();
+            builder.Append("LATEST  ");
+            AppendResponseLabel(builder, LatestResponse);
+            return builder.ToString();
         }
 
         public string BuildWheelText()
@@ -314,6 +373,13 @@ namespace Overthrone
                 LocalPingType.Enemy => "Enemy",
                 _ => type.ToString()
             };
+        }
+
+        private static void AppendResponseLabel(StringBuilder builder, LocalPingResponse response)
+        {
+            builder.Append(response.ResponderName);
+            builder.Append(": ");
+            builder.Append(response.Label);
         }
     }
 }

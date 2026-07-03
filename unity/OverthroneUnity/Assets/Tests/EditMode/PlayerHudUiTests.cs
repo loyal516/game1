@@ -283,6 +283,112 @@ public sealed class PlayerHudUiTests
     }
 
     [Test]
+    public void PlayerHudPingLogAccumulatesResponsesAndShowsLatestResponder()
+    {
+        var local = CreateAgent("Ping Response Local", TeamId.Blue, MovementState.Neutral);
+        var pingSystemObject = new GameObject("Ping Response System");
+        var hudObject = new GameObject("Ping Response Hud");
+        var statusObject = new GameObject("Ping Response Status Text", typeof(RectTransform), typeof(Text));
+        var pingLogObject = new GameObject("Ping Response Log", typeof(RectTransform), typeof(Text));
+
+        try
+        {
+            var pingSystem = pingSystemObject.AddComponent<LocalPingSystem>();
+            pingSystem.SubmitPing(new LocalPingEvent(
+                LocalPingType.Objective,
+                TeamId.Blue,
+                new Vector3(8f, 0f, 0f),
+                "Point B",
+                6f
+            ));
+
+            Assert.IsTrue(pingSystem.SubmitResponse("Blue Runner", LocalPingType.Attention, TeamId.Blue));
+            Assert.IsTrue(pingSystem.SubmitResponse("Blue Anchor", LocalPingType.Defend, TeamId.Blue));
+            Assert.IsTrue(pingSystem.SubmitResponse("Blue Medic", LocalPingType.Help, TeamId.Blue));
+            Assert.IsTrue(pingSystem.SubmitResponse("Blue Caller", LocalPingType.Objective, TeamId.Blue));
+
+            var pingLog = pingLogObject.GetComponent<Text>();
+            var hud = hudObject.AddComponent<PlayerHud>();
+            hud.Configure(
+                local.Motor,
+                null,
+                statusObject.GetComponent<Text>(),
+                localPingSystem: pingSystem,
+                localPingLogText: pingLog
+            );
+
+            hud.Refresh();
+
+            Assert.AreEqual(4, pingSystem.ResponseCount);
+            Assert.AreEqual("Blue Caller", pingSystem.LatestResponse.ResponderName);
+            Assert.AreEqual(LocalPingType.Objective, pingSystem.LatestResponse.Type);
+            Assert.IsTrue(pingLog.gameObject.activeSelf);
+            StringAssert.Contains("PING", pingLog.text);
+            StringAssert.Contains("Point B", pingLog.text);
+            StringAssert.Contains("Blue Runner: Going", pingLog.text);
+            StringAssert.Contains("Blue Anchor: Defend", pingLog.text);
+            StringAssert.Contains("Blue Medic: Help", pingLog.text);
+            StringAssert.Contains("Blue Caller: Capture", pingLog.text);
+            StringAssert.Contains("LATEST  Blue Caller: Capture", pingLog.text);
+        }
+        finally
+        {
+            Object.DestroyImmediate(pingLogObject);
+            Object.DestroyImmediate(statusObject);
+            Object.DestroyImmediate(hudObject);
+            Object.DestroyImmediate(pingSystemObject);
+            Object.DestroyImmediate(local.GameObject);
+        }
+    }
+
+    [Test]
+    public void LocalPingSystemClearsResponsesWhenNewPingStartsOrExpires()
+    {
+        var pingSystemObject = new GameObject("Ping Response Clearing System");
+
+        try
+        {
+            var pingSystem = pingSystemObject.AddComponent<LocalPingSystem>();
+
+            Assert.IsFalse(pingSystem.SubmitResponse("Blue Early", LocalPingType.Attention, TeamId.Blue));
+            Assert.AreEqual(0, pingSystem.ResponseCount);
+
+            pingSystem.SubmitPing(new LocalPingEvent(
+                LocalPingType.Attention,
+                TeamId.Blue,
+                Vector3.forward,
+                "Attention",
+                6f
+            ));
+            Assert.IsTrue(pingSystem.SubmitResponse("Blue First", LocalPingType.Attention, TeamId.Blue));
+            StringAssert.Contains("Blue First: Going", pingSystem.BuildVisibleLog());
+
+            pingSystem.SubmitPing(new LocalPingEvent(
+                LocalPingType.Objective,
+                TeamId.Blue,
+                Vector3.right,
+                "Point C",
+                6f
+            ));
+
+            Assert.AreEqual(0, pingSystem.ResponseCount);
+            Assert.IsFalse(pingSystem.BuildVisibleLog().Contains("Blue First"));
+
+            Assert.IsTrue(pingSystem.SubmitResponse("Blue Second", LocalPingType.Defend, TeamId.Blue));
+            pingSystem.Tick(6f);
+
+            Assert.IsFalse(pingSystem.HasActivePing);
+            Assert.AreEqual(0, pingSystem.ResponseCount);
+            Assert.AreEqual(string.Empty, pingSystem.BuildVisibleLog());
+            Assert.IsFalse(pingSystem.SubmitResponse("Blue Late", LocalPingType.Help, TeamId.Blue));
+        }
+        finally
+        {
+            Object.DestroyImmediate(pingSystemObject);
+        }
+    }
+
+    [Test]
     public void LocalPingSystemPrioritizesEnemyThreatThenObjective()
     {
         var local = CreateAgent("Context Ping Local", TeamId.Blue, MovementState.Neutral);
