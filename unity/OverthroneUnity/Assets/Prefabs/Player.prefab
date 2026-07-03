@@ -168,6 +168,8 @@ MonoBehaviour:
   cameraPivot: {fileID: 3491011486598886475}
   movementProfiles: {fileID: 11400000, guid: 3fc9798f307084dfe9afd3764dea3912, type: 2}
   mouseSensitivity: 0.11
+  gamepadLookSensitivityDegreesPerSecond: 15
+  gamepadLookDeadzone: 0.08
   minPitch: -35
   maxPitch: 65
   lockCursorOnStart: 1
@@ -176,6 +178,11 @@ MonoBehaviour:
   groundedStickForce: -2
   jumpHeight: 2
   crouchSpeed: 2.5
+  slimeControllerHeight: 1.26
+  slimeControllerRadius: 0.25
+  slimeVisualScaleXZ: 1.2
+  slimeVisualScaleY: 0.62
+  slimeGroundFrictionMultiplier: 0.3
   maxStamina: 100
   currentStamina: 100
   sprintStaminaCostPerSecond: 10

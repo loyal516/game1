@@ -97,6 +97,39 @@ public sealed class LocalMatchFlowTests
         }
     }
 
+    [Test]
+    public void AllCapturedOpponentsImmediatelyEndRound()
+    {
+        var blue = CreateAgent("Blue King", TeamId.Blue, MovementState.King);
+        var red = CreateAgent("Red Target", TeamId.Red, MovementState.Neutral);
+        var managerObject = new GameObject("All Captured Match Manager");
+        var manager = managerObject.AddComponent<LocalMatchManager>();
+        var events = new List<LocalMatchFlowEvent>();
+
+        try
+        {
+            Assert.IsTrue(blue.Agent.TryHold(red.Agent));
+            Assert.IsTrue(blue.Agent.CompleteCapture(red.Agent));
+
+            manager.Configure(System.Array.Empty<CapturePoint>(), new[] { blue.Team, red.Team });
+            manager.FlowChanged += events.Add;
+            manager.ApplyMatchRules(0f);
+
+            Assert.AreEqual(LocalMatchPhase.Result, manager.Phase);
+            Assert.AreEqual(TeamId.Blue, manager.Winner);
+            Assert.AreEqual(1, events.Count);
+            Assert.AreEqual(LocalMatchFlowEventType.RoundEnded, events[0].Type);
+            Assert.AreEqual(TeamId.Blue, events[0].Team);
+        }
+        finally
+        {
+            manager.FlowChanged -= events.Add;
+            Object.DestroyImmediate(managerObject);
+            blue.Destroy();
+            red.Destroy();
+        }
+    }
+
     private static MatchFixture CreateMatchFixture(params TeamId[] owners)
     {
         var points = new CapturePoint[owners.Length];
@@ -132,6 +165,21 @@ public sealed class LocalMatchFlowTests
         }
     }
 
+    private static AgentFixture CreateAgent(string name, TeamId team, MovementState state)
+    {
+        var gameObject = new GameObject(name);
+        gameObject.AddComponent<CharacterController>();
+        gameObject.AddComponent<PlayerInputReader>();
+        gameObject.AddComponent<PlayerMotor>();
+        var localTeam = gameObject.AddComponent<LocalPlayerTeam>();
+        localTeam.Configure(team);
+        var stateController = gameObject.AddComponent<PlayerStateController>();
+        stateController.SetPersistentState(state);
+        var agent = gameObject.AddComponent<PlayerCaptureAgent>();
+        agent.Configure(stateController);
+        return new AgentFixture(gameObject, localTeam, agent);
+    }
+
     private readonly struct MatchFixture
     {
         public MatchFixture(GameObject managerObject, LocalMatchManager manager, CapturePoint[] points)
@@ -155,6 +203,25 @@ public sealed class LocalMatchFlowTests
                     Object.DestroyImmediate(point.gameObject);
                 }
             }
+        }
+    }
+
+    private readonly struct AgentFixture
+    {
+        public AgentFixture(GameObject gameObject, LocalPlayerTeam team, PlayerCaptureAgent agent)
+        {
+            GameObject = gameObject;
+            Team = team;
+            Agent = agent;
+        }
+
+        public GameObject GameObject { get; }
+        public LocalPlayerTeam Team { get; }
+        public PlayerCaptureAgent Agent { get; }
+
+        public void Destroy()
+        {
+            Object.DestroyImmediate(GameObject);
         }
     }
 }

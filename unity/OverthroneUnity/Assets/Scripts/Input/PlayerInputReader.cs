@@ -47,6 +47,19 @@ namespace Overthrone
         public bool SpectatePreviousPressed => spectatePreviousAction != null && spectatePreviousAction.WasPressedThisFrame();
         public bool SpectateNextPressed => spectateNextAction != null && spectateNextAction.WasPressedThisFrame();
 
+        public void SetManualInput(Vector2 move, bool sprintHeld = false, bool crouchHeld = false, bool captureHeld = false)
+        {
+            Move = Vector2.ClampMagnitude(move, 1f);
+            SprintHeld = sprintHeld;
+            CrouchHeld = crouchHeld;
+            CaptureHeld = captureHeld;
+        }
+
+        public void ClearManualInput()
+        {
+            SetManualInput(Vector2.zero);
+        }
+
         public void Configure(InputActionAsset inputActions)
         {
             if (controls == inputActions && actionsBound)

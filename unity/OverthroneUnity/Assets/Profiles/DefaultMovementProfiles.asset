@@ -61,12 +61,12 @@ MonoBehaviour:
   - state: 5
     canMove: 1
     canSprint: 0
-    walkSpeed: 6.3
-    runSpeed: 6.3
+    walkSpeed: 9.8
+    runSpeed: 9.8
     acceleration: 18
     turnSharpness: 16
     noiseRadius: 3
-    footstepInterval: 0.52
+    footstepInterval: 0.36
   - state: 6
     canMove: 0
     canSprint: 0

@@ -41,6 +41,7 @@ public static class OverthroneUnityBootstrap
         ConfigureLocalSpectatorCamera(player.GetComponentInChildren<LocalSpectatorCamera>(), captureAgents[0], captureAgents, player.GetComponent<PlayerInputReader>());
         var deadChannel = CreateLocalDeadChannel();
         var localCaptureSystem = CreateLocalCaptureSystem(player.GetComponent<PlayerCaptureAgent>(), captureAgents, deadChannel);
+        ConfigureLocalBots(rosterObjects, capturePoints, matchParticipants, captureAgents, localCaptureSystem);
         var localPingSystem = CreateLocalPingSystem(player.GetComponent<PlayerInputReader>(), player.GetComponent<PlayerCaptureAgent>(), capturePoints, matchParticipants);
         CreateCaptureFeedbackController();
         CreatePrototypeHud(
@@ -111,7 +112,7 @@ public static class OverthroneUnityBootstrap
             new MovementProfile { state = MovementState.King, canMove = true, canSprint = true, walkSpeed = 5.0f, runSpeed = 7.9f, noiseRadius = 9.5f, footstepInterval = 0.36f },
             new MovementProfile { state = MovementState.Held, canMove = false, canSprint = false, walkSpeed = 0f, runSpeed = 0f, noiseRadius = 0f, footstepInterval = 1f },
             new MovementProfile { state = MovementState.Captured, canMove = false, canSprint = false, walkSpeed = 0f, runSpeed = 0f, noiseRadius = 0f, footstepInterval = 1f },
-            new MovementProfile { state = MovementState.Slime, canMove = true, canSprint = false, walkSpeed = 6.3f, runSpeed = 6.3f, noiseRadius = 3f, footstepInterval = 0.52f },
+            new MovementProfile { state = MovementState.Slime, canMove = true, canSprint = false, walkSpeed = 9.8f, runSpeed = 9.8f, noiseRadius = 3f, footstepInterval = 0.36f },
             new MovementProfile { state = MovementState.Holding, canMove = false, canSprint = false, walkSpeed = 0f, runSpeed = 0f, noiseRadius = 0f, footstepInterval = 1f }
         });
         EditorUtility.SetDirty(profileSet);
@@ -288,6 +289,7 @@ public static class OverthroneUnityBootstrap
         team.ConfigureKingPriority(0, 0f, 100 - slot.TeamIndex);
         target.AddComponent<PlayerCaptureAgent>();
         target.AddComponent<TackleHitbox>();
+        target.AddComponent<LocalBotController>();
         return target;
     }
 
@@ -409,6 +411,23 @@ public static class OverthroneUnityBootstrap
         var captureSystem = captureSystemObject.AddComponent<LocalCaptureSystem>();
         captureSystem.Configure(player, captureAgents, deadChannel);
         return captureSystem;
+    }
+
+    private static void ConfigureLocalBots(
+        GameObject[] rosterObjects,
+        CapturePoint[] capturePoints,
+        LocalPlayerTeam[] matchParticipants,
+        PlayerCaptureAgent[] captureAgents,
+        LocalCaptureSystem captureSystem)
+    {
+        foreach (var rosterObject in rosterObjects)
+        {
+            var bot = rosterObject != null ? rosterObject.GetComponent<LocalBotController>() : null;
+            if (bot != null)
+            {
+                bot.Configure(capturePoints, matchParticipants, captureAgents, captureSystem);
+            }
+        }
     }
 
     private static LocalPingSystem CreateLocalPingSystem(

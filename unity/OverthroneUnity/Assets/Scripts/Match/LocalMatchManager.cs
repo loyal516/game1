@@ -64,6 +64,12 @@ namespace Overthrone
         public void ApplyMatchRules(float deltaTime)
         {
             deltaTime = Mathf.Max(0f, deltaTime);
+            ApplyAllCapturedVictory();
+            if (Phase == LocalMatchPhase.Result)
+            {
+                return;
+            }
+
             ApplyVictoryCountdown(deltaTime);
 
             if (Phase == LocalMatchPhase.Result)
@@ -71,9 +77,19 @@ namespace Overthrone
                 return;
             }
 
+            var blueOwnedCount = GetOwnedCount(TeamId.Blue);
+            var redOwnedCount = GetOwnedCount(TeamId.Red);
+            var blueRallyActive = HasAttackerRally(TeamId.Blue);
+            var redRallyActive = HasAttackerRally(TeamId.Red);
+            var blueKingCandidate = ResolveKingCandidate(TeamId.Blue, blueOwnedCount);
+            var redKingCandidate = ResolveKingCandidate(TeamId.Red, redOwnedCount);
+
             foreach (var participant in participants)
             {
-                ApplyParticipantState(participant, deltaTime);
+                var ownedCount = participant != null && participant.Team == TeamId.Blue ? blueOwnedCount : redOwnedCount;
+                var rallyActive = participant != null && participant.Team == TeamId.Blue ? blueRallyActive : redRallyActive;
+                var kingCandidate = participant != null && participant.Team == TeamId.Blue ? blueKingCandidate : redKingCandidate;
+                ApplyParticipantState(participant, deltaTime, ownedCount, rallyActive, kingCandidate);
             }
         }
 
@@ -197,7 +213,75 @@ namespace Overthrone
             }
         }
 
-        private void ApplyParticipantState(LocalPlayerTeam participant, float deltaTime)
+        private void ApplyAllCapturedVictory()
+        {
+            if (Winner != TeamId.None)
+            {
+                return;
+            }
+
+            var captureWinner = ResolveAllCapturedWinner();
+            if (captureWinner == TeamId.None)
+            {
+                return;
+            }
+
+            Winner = captureWinner;
+            Phase = LocalMatchPhase.Result;
+            victoryCountdownTeam = TeamId.None;
+            victoryTimeRemaining = victoryCountdownSeconds;
+            defenderTeam = TeamId.None;
+            defenderReentryTimeRemaining = 0f;
+            EmitFlowEvent(new LocalMatchFlowEvent(
+                LocalMatchFlowEventType.RoundEnded,
+                Winner,
+                TeamId.None,
+                0f
+            ));
+        }
+
+        private TeamId ResolveAllCapturedWinner()
+        {
+            var hasBlue = false;
+            var hasRed = false;
+            var blueAllCaptured = true;
+            var redAllCaptured = true;
+
+            foreach (var participant in participants)
+            {
+                if (participant == null || !participant.isActiveAndEnabled || participant.Team == TeamId.None)
+                {
+                    continue;
+                }
+
+                var captureAgent = participant.GetComponent<PlayerCaptureAgent>();
+                var isCaptured = captureAgent != null && captureAgent.Status == CaptureStatus.Captured;
+                if (participant.Team == TeamId.Blue)
+                {
+                    hasBlue = true;
+                    blueAllCaptured &= isCaptured;
+                }
+                else if (participant.Team == TeamId.Red)
+                {
+                    hasRed = true;
+                    redAllCaptured &= isCaptured;
+                }
+            }
+
+            if (hasBlue && hasRed && blueAllCaptured)
+            {
+                return TeamId.Red;
+            }
+
+            return hasBlue && hasRed && redAllCaptured ? TeamId.Blue : TeamId.None;
+        }
+
+        private void ApplyParticipantState(
+            LocalPlayerTeam participant,
+            float deltaTime,
+            int ownedPointCount,
+            bool rallyActive,
+            LocalPlayerTeam kingCandidate)
         {
             if (participant == null || !participant.isActiveAndEnabled || participant.Team == TeamId.None)
             {
@@ -210,11 +294,9 @@ namespace Overthrone
                 return;
             }
 
-            var rallyActive = HasAttackerRally(participant.Team);
             var graceActive = UpdateAttackerGrace(participant, rallyActive, deltaTime);
-            var kingCandidate = ResolveKingCandidate(participant.Team);
             var desiredState = LocalMatchRules.ResolvePlayerState(
-                GetOwnedCount(participant.Team),
+                ownedPointCount,
                 rallyActive,
                 graceActive,
                 kingCandidate == participant
@@ -250,9 +332,9 @@ namespace Overthrone
             return true;
         }
 
-        private LocalPlayerTeam ResolveKingCandidate(TeamId team)
+        private LocalPlayerTeam ResolveKingCandidate(TeamId team, int ownedPointCount)
         {
-            if (team == TeamId.None || GetOwnedCount(team) < LocalMatchRules.KingOwnedPointThreshold)
+            if (team == TeamId.None || ownedPointCount < LocalMatchRules.KingOwnedPointThreshold)
             {
                 return null;
             }

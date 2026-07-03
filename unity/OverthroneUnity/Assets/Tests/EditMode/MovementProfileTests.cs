@@ -610,6 +610,43 @@ public sealed class MovementProfileTests
     }
 
     [Test]
+    public void DefaultSlimeProfileIsFasterThanNeutralSprint()
+    {
+        var profiles = AssetDatabase.LoadAssetAtPath<MovementProfileSet>("Assets/Profiles/DefaultMovementProfiles.asset");
+        Assert.IsNotNull(profiles);
+
+        var neutral = profiles.Get(MovementState.Neutral);
+        var slime = profiles.Get(MovementState.Slime);
+
+        Assert.Greater(slime.MaxSpeed(false), neutral.MaxSpeed(true));
+        Assert.AreEqual(9.8f, slime.MaxSpeed(false), 0.0001f);
+    }
+
+    [Test]
+    public void ManualInputCanDriveBotMovementWithoutInputActions()
+    {
+        var player = new GameObject("Manual Bot Input Player");
+        try
+        {
+            var input = player.AddComponent<PlayerInputReader>();
+
+            input.SetManualInput(Vector2.up, true);
+
+            Assert.AreEqual(Vector2.up, input.Move);
+            Assert.IsTrue(input.SprintHeld);
+
+            input.ClearManualInput();
+
+            Assert.AreEqual(Vector2.zero, input.Move);
+            Assert.IsFalse(input.SprintHeld);
+        }
+        finally
+        {
+            Object.DestroyImmediate(player);
+        }
+    }
+
+    [Test]
     public void NoiseSystemBroadcastsRunNoise()
     {
         NoiseEvent? received = null;
