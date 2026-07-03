@@ -3,16 +3,20 @@ using System.Collections.Generic;
 using NUnit.Framework;
 using Overthrone;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.TestTools;
 
 public sealed class LocalBotPlayModeSmokeTests
 {
     private const int FrameBudget = 90;
+    private const int SoakFrameBudget = 240;
     private const float MinimumMovementDistance = 0.25f;
+    private const float MinimumSoakMovementDistance = 1.25f;
     private const float MinimumAvoidanceOffsetMagnitude = 0.05f;
     private const float MinimumLateralAvoidanceDistance = 0.08f;
     private const float MinimumBlockerClearance = 0.25f;
     private const float PositionTolerance = 0.0001f;
+    private const float ChokeHalfWidth = 0.9f;
 
     private readonly List<Object> createdObjects = new List<Object>();
     private float previousCaptureDeltaTime;
@@ -130,6 +134,120 @@ public sealed class LocalBotPlayModeSmokeTests
         Assert.IsTrue(observedSearchOrGuard);
     }
 
+    [UnityTest]
+    public IEnumerator LocalSixBotChokePointDirectFallbackSoakMaintainsMatchAndSteeringInvariants()
+    {
+        NavMesh.RemoveAllNavMeshData();
+        CreateGroundCollider("PlayMode Six Bot Soak Ground");
+        CreateWall("PlayMode Choke Left Wall", new Vector3(-ChokeHalfWidth, 1f, -1.6f), new Vector3(0.22f, 2f, 8.2f));
+        CreateWall("PlayMode Choke Right Wall", new Vector3(ChokeHalfWidth, 1f, -1.6f), new Vector3(0.22f, 2f, 8.2f));
+
+        var capturePoints = new[]
+        {
+            CreateCapturePoint("A", new Vector3(0f, 0f, 1.25f), 1.25f),
+            CreateCapturePoint("B", new Vector3(-5.5f, 0f, 0.5f), 1.25f),
+            CreateCapturePoint("C", new Vector3(5.5f, 0f, 0.5f), 1.25f)
+        };
+        var bots = new[]
+        {
+            CreateAgent("PlayMode Soak Blue Choke Runner", TeamId.Blue, MovementState.Neutral, new Vector3(0f, 0f, -7f)),
+            CreateAgent("PlayMode Soak Blue Blocker", TeamId.Blue, MovementState.Neutral, new Vector3(0.18f, 0f, -4.8f)),
+            CreateAgent("PlayMode Soak Blue Wide", TeamId.Blue, MovementState.Neutral, new Vector3(-2.2f, 0f, -7.2f)),
+            CreateAgent("PlayMode Soak Red Choke Runner", TeamId.Red, MovementState.Neutral, new Vector3(0f, 0f, 7f)),
+            CreateAgent("PlayMode Soak Red Left", TeamId.Red, MovementState.Neutral, new Vector3(-2.2f, 0f, 7.2f)),
+            CreateAgent("PlayMode Soak Red Right", TeamId.Red, MovementState.Neutral, new Vector3(2.2f, 0f, 7.2f))
+        };
+        var participants = new LocalPlayerTeam[bots.Length];
+        var agents = new PlayerCaptureAgent[bots.Length];
+        var startPositions = new Vector3[bots.Length];
+        for (var index = 0; index < bots.Length; index += 1)
+        {
+            participants[index] = bots[index].Team;
+            agents[index] = bots[index].Agent;
+            startPositions[index] = bots[index].GameObject.transform.position;
+            AssertFinitePosition(startPositions[index]);
+        }
+
+        var systems = CreateMatchSystems("PlayMode Six Bot Soak Systems", bots[0].Agent, agents, capturePoints, participants);
+        systems.MatchManager.enabled = false;
+        foreach (var bot in bots)
+        {
+            bot.Controller.Configure(capturePoints, participants, agents, systems.CaptureSystem);
+        }
+
+        Physics.SyncTransforms();
+
+        var observedDirectFallback = false;
+        var observedPointTarget = false;
+        var observedSightTarget = false;
+        var observedDynamicAvoidance = false;
+        var observedChokeTraversal = false;
+        var largestAvoidanceOffset = 0f;
+        var largestLateralAvoidance = 0f;
+        var closestBlockerApproach = float.MaxValue;
+
+        for (var frame = 0; frame < SoakFrameBudget; frame += 1)
+        {
+            yield return null;
+            systems.MatchManager.ApplyMatchRules(Time.captureDeltaTime);
+
+            AssertMatchInvariant(systems.MatchManager);
+
+            var blockerPosition = bots[1].GameObject.transform.position;
+            for (var index = 0; index < bots.Length; index += 1)
+            {
+                var bot = bots[index];
+                var position = bot.GameObject.transform.position;
+                AssertFinitePosition(position);
+
+                observedDirectFallback |= bot.Controller.LastMoveMode == LocalBotMoveMode.DirectFallback;
+                observedPointTarget |= bot.Controller.CurrentPointTarget != null;
+                observedSightTarget |= bot.Controller.HasSightSuspicion
+                    || bot.Controller.IsInvestigatingSight
+                    || bot.Controller.CurrentSightAgent != null;
+                observedDynamicAvoidance |= bot.Controller.IsAvoidingDynamicObstacle;
+                largestAvoidanceOffset = Mathf.Max(largestAvoidanceOffset, bot.Controller.LastAvoidanceOffset.magnitude);
+
+                if (index == 0)
+                {
+                    largestLateralAvoidance = Mathf.Max(largestLateralAvoidance, Mathf.Abs(position.x - startPositions[index].x));
+                    closestBlockerApproach = Mathf.Min(closestBlockerApproach, HorizontalDistance(position, blockerPosition));
+                }
+
+                var enteredChokeFromOutside = startPositions[index].z < -6f
+                    ? position.z > -4.7f
+                    : startPositions[index].z > 6f && position.z < 2.5f;
+                if (enteredChokeFromOutside
+                    && Mathf.Abs(position.x) < ChokeHalfWidth
+                    && position.z > -4.7f
+                    && position.z < 1.5f)
+                {
+                    observedChokeTraversal = true;
+                }
+            }
+        }
+
+        var movedBotCount = 0;
+        for (var index = 0; index < bots.Length; index += 1)
+        {
+            if (HorizontalDistance(startPositions[index], bots[index].GameObject.transform.position) >= MinimumSoakMovementDistance)
+            {
+                movedBotCount += 1;
+            }
+        }
+
+        Assert.GreaterOrEqual(movedBotCount, 2, "At least two of the six local bots should move meaningful distance during the soak.");
+        Assert.IsTrue(observedDirectFallback, "No baked NavMesh is present, so bots should exercise DirectFallback steering.");
+        Assert.IsTrue(observedPointTarget || observedSightTarget, "At least one bot should acquire an objective target during the soak.");
+        Assert.IsTrue(observedDynamicAvoidance, "The choke blocker should trigger dynamic obstacle avoidance.");
+        Assert.GreaterOrEqual(largestAvoidanceOffset, MinimumAvoidanceOffsetMagnitude);
+        Assert.GreaterOrEqual(largestLateralAvoidance, MinimumLateralAvoidanceDistance);
+        Assert.Less(closestBlockerApproach, 2.5f, "The central bot should actually encounter the blocker instead of avoiding the choke scenario entirely.");
+        Assert.IsTrue(observedChokeTraversal, "At least one bot should traverse the corridor between the two wall colliders.");
+        Assert.AreEqual(LocalMatchPhase.Playing, systems.MatchManager.Phase);
+        Assert.AreEqual(TeamId.None, systems.MatchManager.Winner);
+    }
+
     [TearDown]
     public void TearDown()
     {
@@ -229,6 +347,38 @@ public sealed class LocalBotPlayModeSmokeTests
         boxCollider.size = new Vector3(40f, 0.1f, 40f);
     }
 
+    private void CreateWall(string name, Vector3 position, Vector3 size)
+    {
+        var wall = CreateGameObject(name);
+        wall.transform.position = position;
+        var boxCollider = wall.AddComponent<BoxCollider>();
+        boxCollider.size = size;
+    }
+
+    private CapturePoint CreateCapturePoint(string pointId, Vector3 position, float radius)
+    {
+        var gameObject = CreateGameObject($"PlayMode Capture Point {pointId}");
+        gameObject.transform.position = position;
+        var capturePoint = gameObject.AddComponent<CapturePoint>();
+        capturePoint.Configure(pointId, radius);
+        return capturePoint;
+    }
+
+    private MatchSystemsFixture CreateMatchSystems(
+        string name,
+        PlayerCaptureAgent localPlayer,
+        PlayerCaptureAgent[] agents,
+        CapturePoint[] capturePoints,
+        LocalPlayerTeam[] participants)
+    {
+        var gameObject = CreateGameObject(name);
+        var captureSystem = gameObject.AddComponent<LocalCaptureSystem>();
+        captureSystem.Configure(localPlayer, agents);
+        var matchManager = gameObject.AddComponent<LocalMatchManager>();
+        matchManager.Configure(capturePoints, participants, 120f);
+        return new MatchSystemsFixture(captureSystem, matchManager);
+    }
+
     private T AddCreatedComponent<T>(GameObject gameObject) where T : Component
     {
         return gameObject.AddComponent<T>();
@@ -257,6 +407,34 @@ public sealed class LocalBotPlayModeSmokeTests
         Assert.IsFalse(float.IsNaN(position.x) || float.IsNaN(position.y) || float.IsNaN(position.z));
         Assert.IsFalse(float.IsInfinity(position.x) || float.IsInfinity(position.y) || float.IsInfinity(position.z));
         Assert.GreaterOrEqual(position.y, -PositionTolerance);
+    }
+
+    private static void AssertMatchInvariant(LocalMatchManager matchManager)
+    {
+        Assert.IsNotNull(matchManager);
+        Assert.Greater(matchManager.MatchTimeRemaining, 0f);
+        Assert.AreNotEqual(LocalMatchPhase.Result, matchManager.Phase);
+        Assert.AreEqual(TeamId.None, matchManager.Winner);
+        Assert.IsTrue(matchManager.VictoryCountdownTeam == TeamId.None
+            || matchManager.VictoryCountdownTeam == TeamId.Blue
+            || matchManager.VictoryCountdownTeam == TeamId.Red);
+        Assert.GreaterOrEqual(matchManager.VictoryTimeRemaining, 0f);
+        Assert.GreaterOrEqual(matchManager.BlueOwnedCount, 0);
+        Assert.GreaterOrEqual(matchManager.RedOwnedCount, 0);
+        Assert.LessOrEqual(matchManager.BlueOwnedCount, matchManager.CapturePoints.Length);
+        Assert.LessOrEqual(matchManager.RedOwnedCount, matchManager.CapturePoints.Length);
+    }
+
+    private readonly struct MatchSystemsFixture
+    {
+        public MatchSystemsFixture(LocalCaptureSystem captureSystem, LocalMatchManager matchManager)
+        {
+            CaptureSystem = captureSystem;
+            MatchManager = matchManager;
+        }
+
+        public LocalCaptureSystem CaptureSystem { get; }
+        public LocalMatchManager MatchManager { get; }
     }
 
     private readonly struct AgentFixture
