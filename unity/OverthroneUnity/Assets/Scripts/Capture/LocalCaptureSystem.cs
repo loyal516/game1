@@ -263,7 +263,7 @@ namespace Overthrone
                 && captor.Team.Team != TeamId.None
                 && target.Team.Team != TeamId.None
                 && captor.Team.Team != target.Team.Team
-                && CaptureInteractionRules.CanFinalCapture(captor.CaptureAuthorityState, captor.Status, target.Status)
+                && CaptureInteractionRules.CanFinalCapture(captor.CaptureAuthorityState, captor.Status, target.Status, target.HeldBy == captor)
                 && CaptureInteractionRules.IsInRange(captor.transform.position, target.transform.position, CaptureInteractionRules.CaptureRange);
         }
 

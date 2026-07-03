@@ -49,6 +49,7 @@ public sealed class CaptureFeedbackTests
     public void RescueFinalCaptureAndSlimeEscapeEmitSpecificFeedback()
     {
         var king = CreateAgent("Feedback King", TeamId.Blue, MovementState.King);
+        var holder = CreateAgent("Feedback Holder", TeamId.Blue, MovementState.Attacker);
         var target = CreateAgent("Feedback Target", TeamId.Red, MovementState.Neutral);
         var rescuer = CreateAgent("Feedback Rescuer", TeamId.Red, MovementState.Neutral);
         var events = new List<CaptureFeedbackEvent>();
@@ -56,6 +57,7 @@ public sealed class CaptureFeedbackTests
         var rescueSystem = rescueSystemObject.AddComponent<LocalCaptureSystem>();
 
         king.GameObject.transform.position = Vector3.zero;
+        holder.GameObject.transform.position = Vector3.forward * 0.5f;
         target.GameObject.transform.position = Vector3.forward;
         rescuer.GameObject.transform.position = Vector3.forward * 1.2f;
         rescueSystem.Configure(rescuer.Agent, new[] { king.Agent, target.Agent, rescuer.Agent });
@@ -78,9 +80,9 @@ public sealed class CaptureFeedbackTests
             Assert.AreEqual(king.GameObject, events[1].Target);
 
             AdvanceTimedState(king.StateController, CaptureInteractionRules.HolderReleaseStunSeconds);
-            Assert.IsTrue(king.Agent.TryHold(target.Agent));
+            Assert.IsTrue(holder.Agent.TryHold(target.Agent));
             var captureSystem = king.GameObject.AddComponent<LocalCaptureSystem>();
-            captureSystem.Configure(king.Agent, new[] { king.Agent, target.Agent });
+            captureSystem.Configure(king.Agent, new[] { king.Agent, holder.Agent, target.Agent });
             Assert.IsTrue(captureSystem.TickFinalCapture(king.Agent, CaptureInteractionRules.CaptureHoldSeconds));
             Assert.AreEqual(CaptureFeedbackType.FinalCapture, events[2].Type);
             Assert.AreEqual(king.GameObject, events[2].Source);
@@ -92,6 +94,7 @@ public sealed class CaptureFeedbackTests
             CaptureFeedbackSystem.FeedbackEmitted -= events.Add;
             Object.DestroyImmediate(rescueSystemObject);
             Object.DestroyImmediate(king.GameObject);
+            Object.DestroyImmediate(holder.GameObject);
             Object.DestroyImmediate(target.GameObject);
             Object.DestroyImmediate(rescuer.GameObject);
         }

@@ -12,12 +12,14 @@ public sealed class LocalDeadChannelTests
         var redCaptured = CreateAgent("Red Captured", TeamId.Red, MovementState.Neutral);
         var blueKing = CreateAgent("Blue King", TeamId.Blue, MovementState.King);
         var redKing = CreateAgent("Red King", TeamId.Red, MovementState.King);
+        var blueHolder = CreateAgent("Blue Holder", TeamId.Blue, MovementState.Attacker);
+        var redHolder = CreateAgent("Red Holder", TeamId.Red, MovementState.Attacker);
         var channelObject = new GameObject("Dead Channel");
 
         try
         {
-            Capture(redKing.Agent, blueCaptured.Agent);
-            Capture(blueKing.Agent, redCaptured.Agent);
+            Capture(redHolder.Agent, redKing.Agent, blueCaptured.Agent);
+            Capture(blueHolder.Agent, blueKing.Agent, redCaptured.Agent);
             var channel = channelObject.AddComponent<LocalDeadChannel>();
 
             Assert.IsFalse(channel.TryPost(blueAlive.Agent, "alive should not post"));
@@ -46,6 +48,8 @@ public sealed class LocalDeadChannelTests
             Object.DestroyImmediate(redCaptured.GameObject);
             Object.DestroyImmediate(blueKing.GameObject);
             Object.DestroyImmediate(redKing.GameObject);
+            Object.DestroyImmediate(blueHolder.GameObject);
+            Object.DestroyImmediate(redHolder.GameObject);
         }
     }
 
@@ -53,20 +57,22 @@ public sealed class LocalDeadChannelTests
     public void LocalCaptureSystemPostsJoinMessageAfterFinalCapture()
     {
         var king = CreateAgent("Blue King", TeamId.Blue, MovementState.King);
+        var holder = CreateAgent("Blue Holder", TeamId.Blue, MovementState.Attacker);
         var target = CreateAgent("Red Target", TeamId.Red, MovementState.Neutral);
         var channelObject = new GameObject("Dead Channel");
         var systemObject = new GameObject("Capture System");
 
         king.GameObject.transform.position = Vector3.zero;
+        holder.GameObject.transform.position = Vector3.forward * 0.5f;
         target.GameObject.transform.position = Vector3.forward;
 
         try
         {
             var channel = channelObject.AddComponent<LocalDeadChannel>();
             var captureSystem = systemObject.AddComponent<LocalCaptureSystem>();
-            captureSystem.Configure(king.Agent, new[] { king.Agent, target.Agent }, channel);
+            captureSystem.Configure(king.Agent, new[] { king.Agent, holder.Agent, target.Agent }, channel);
 
-            Assert.IsTrue(king.Agent.TryHold(target.Agent));
+            Assert.IsTrue(holder.Agent.TryHold(target.Agent));
             Assert.IsTrue(captureSystem.TickFinalCapture(king.Agent, CaptureInteractionRules.CaptureHoldSeconds));
 
             Assert.AreEqual(CaptureStatus.Captured, target.Agent.Status);
@@ -79,6 +85,7 @@ public sealed class LocalDeadChannelTests
             Object.DestroyImmediate(systemObject);
             Object.DestroyImmediate(channelObject);
             Object.DestroyImmediate(king.GameObject);
+            Object.DestroyImmediate(holder.GameObject);
             Object.DestroyImmediate(target.GameObject);
         }
     }
@@ -98,9 +105,9 @@ public sealed class LocalDeadChannelTests
         return new AgentFixture(gameObject, motor, teamComponent, agent);
     }
 
-    private static void Capture(PlayerCaptureAgent king, PlayerCaptureAgent target)
+    private static void Capture(PlayerCaptureAgent holder, PlayerCaptureAgent king, PlayerCaptureAgent target)
     {
-        Assert.IsTrue(king.TryHold(target));
+        Assert.IsTrue(holder.TryHold(target));
         Assert.IsTrue(king.CompleteCapture(target));
     }
 

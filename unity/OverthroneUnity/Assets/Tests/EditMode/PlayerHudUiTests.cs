@@ -62,6 +62,7 @@ public sealed class PlayerHudUiTests
     public void PlayerHudUpdatesCaptureProgressRingFromLocalCaptureSystem()
     {
         var king = CreateAgent("Ring King", TeamId.Blue, MovementState.King);
+        var holder = CreateAgent("Ring Holder", TeamId.Blue, MovementState.Attacker);
         var target = CreateAgent("Ring Target", TeamId.Red, MovementState.Neutral);
         var systemObject = new GameObject("Ring Capture System");
         var hudObject = new GameObject("Hud");
@@ -69,13 +70,14 @@ public sealed class PlayerHudUiTests
         var ringObject = new GameObject("Capture Ring", typeof(RectTransform), typeof(Image));
 
         king.GameObject.transform.position = Vector3.zero;
+        holder.GameObject.transform.position = Vector3.forward * 0.5f;
         target.GameObject.transform.position = Vector3.forward;
 
         try
         {
             var captureSystem = systemObject.AddComponent<LocalCaptureSystem>();
-            captureSystem.Configure(king.Agent, new[] { king.Agent, target.Agent });
-            Assert.IsTrue(king.Agent.TryHold(target.Agent));
+            captureSystem.Configure(king.Agent, new[] { king.Agent, holder.Agent, target.Agent });
+            Assert.IsTrue(holder.Agent.TryHold(target.Agent));
             Assert.IsFalse(captureSystem.TickFinalCapture(king.Agent, CaptureInteractionRules.CaptureHoldSeconds * 0.5f));
 
             var ring = ringObject.GetComponent<Image>();
@@ -100,6 +102,7 @@ public sealed class PlayerHudUiTests
             Object.DestroyImmediate(hudObject);
             Object.DestroyImmediate(systemObject);
             Object.DestroyImmediate(king.GameObject);
+            Object.DestroyImmediate(holder.GameObject);
             Object.DestroyImmediate(target.GameObject);
         }
     }

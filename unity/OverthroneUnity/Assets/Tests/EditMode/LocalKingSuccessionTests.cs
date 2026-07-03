@@ -59,18 +59,20 @@ public sealed class LocalKingSuccessionTests
     [Test]
     public void CompleteCaptureIncrementsKingPriorityCaptureCount()
     {
+        var holder = CreateAgent("Priority Holder", TeamId.Blue, MovementState.Attacker);
         var king = CreateAgent("Priority King", TeamId.Blue, MovementState.King);
         var target = CreateAgent("Priority Target", TeamId.Red, MovementState.Neutral);
 
         try
         {
-            Assert.IsTrue(king.Agent.TryHold(target.Agent));
+            Assert.IsTrue(holder.Agent.TryHold(target.Agent));
             Assert.IsTrue(king.Agent.CompleteCapture(target.Agent));
 
             Assert.AreEqual(1, king.Team.FinalCaptureCount);
         }
         finally
         {
+            holder.Destroy();
             king.Destroy();
             target.Destroy();
         }

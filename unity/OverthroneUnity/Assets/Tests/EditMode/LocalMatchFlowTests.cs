@@ -101,6 +101,7 @@ public sealed class LocalMatchFlowTests
     [Test]
     public void AllCapturedOpponentsImmediatelyEndRound()
     {
+        var holder = CreateAgent("Blue Holder", TeamId.Blue, MovementState.Attacker);
         var blue = CreateAgent("Blue King", TeamId.Blue, MovementState.King);
         var red = CreateAgent("Red Target", TeamId.Red, MovementState.Neutral);
         var managerObject = new GameObject("All Captured Match Manager");
@@ -109,10 +110,10 @@ public sealed class LocalMatchFlowTests
 
         try
         {
-            Assert.IsTrue(blue.Agent.TryHold(red.Agent));
+            Assert.IsTrue(holder.Agent.TryHold(red.Agent));
             Assert.IsTrue(blue.Agent.CompleteCapture(red.Agent));
 
-            manager.Configure(System.Array.Empty<CapturePoint>(), new[] { blue.Team, red.Team });
+            manager.Configure(System.Array.Empty<CapturePoint>(), new[] { holder.Team, blue.Team, red.Team });
             manager.FlowChanged += events.Add;
             manager.ApplyMatchRules(0f);
 
@@ -126,6 +127,7 @@ public sealed class LocalMatchFlowTests
         {
             manager.FlowChanged -= events.Add;
             Object.DestroyImmediate(managerObject);
+            holder.Destroy();
             blue.Destroy();
             red.Destroy();
         }
@@ -172,6 +174,7 @@ public sealed class LocalMatchFlowTests
     [Test]
     public void TimeoutSurvivorCountWinsBeforePointTiebreak()
     {
+        var blueHolder = CreateAgent("Blue Holder Survivor", TeamId.Blue, MovementState.Attacker);
         var blueKing = CreateAgent("Blue King Survivor", TeamId.Blue, MovementState.King);
         var blueRunner = CreateAgent("Blue Runner Survivor", TeamId.Blue, MovementState.Neutral);
         var redCaptured = CreateAgent("Red Captured", TeamId.Red, MovementState.Neutral);
@@ -181,12 +184,12 @@ public sealed class LocalMatchFlowTests
 
         try
         {
-            Assert.IsTrue(blueKing.Agent.TryHold(redCaptured.Agent));
+            Assert.IsTrue(blueHolder.Agent.TryHold(redCaptured.Agent));
             Assert.IsTrue(blueKing.Agent.CompleteCapture(redCaptured.Agent));
 
             manager.Configure(
                 System.Array.Empty<CapturePoint>(),
-                new[] { blueKing.Team, blueRunner.Team, redCaptured.Team, redRunner.Team },
+                new[] { blueHolder.Team, blueKing.Team, blueRunner.Team, redCaptured.Team, redRunner.Team },
                 1f
             );
             manager.ApplyMatchRules(1f);
@@ -198,6 +201,7 @@ public sealed class LocalMatchFlowTests
         finally
         {
             Object.DestroyImmediate(managerObject);
+            blueHolder.Destroy();
             blueKing.Destroy();
             blueRunner.Destroy();
             redCaptured.Destroy();

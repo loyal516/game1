@@ -41,6 +41,13 @@ public sealed class CaptureInteractionTests
     }
 
     [Test]
+    public void FinalCaptureRequiresSeparateHolder()
+    {
+        Assert.IsFalse(CaptureInteractionRules.CanFinalCapture(MovementState.King, CaptureStatus.Holding, CaptureStatus.Held, true));
+        Assert.IsTrue(CaptureInteractionRules.CanFinalCapture(MovementState.King, CaptureStatus.Free, CaptureStatus.Held, false));
+    }
+
+    [Test]
     public void HoldSetsHolderAndTargetMovementStatesThenReleaseRestoresThem()
     {
         var holder = CreateAgent("Holder", TeamId.Blue, MovementState.Attacker);
@@ -89,7 +96,7 @@ public sealed class CaptureInteractionTests
     }
 
     [Test]
-    public void KingCanCompleteCaptureAfterHoldingTarget()
+    public void KingCannotCompleteCaptureAfterHoldingTarget()
     {
         var king = CreateAgent("King", TeamId.Blue, MovementState.King);
         var target = CreateAgent("Held Target", TeamId.Red, MovementState.Neutral);
@@ -97,17 +104,48 @@ public sealed class CaptureInteractionTests
         try
         {
             Assert.IsTrue(king.Agent.TryHold(target.Agent));
-            Assert.IsTrue(king.Agent.CompleteCapture(target.Agent));
+            Assert.IsFalse(king.Agent.CompleteCapture(target.Agent));
 
-            Assert.AreEqual(CaptureStatus.Free, king.Agent.Status);
-            Assert.AreEqual(CaptureStatus.Captured, target.Agent.Status);
-            Assert.AreEqual(MovementState.King, king.StateController.PersistentState);
-            Assert.AreEqual(MovementState.King, king.StateController.CurrentState);
-            Assert.AreEqual(MovementState.Captured, target.StateController.PersistentState);
+            Assert.AreEqual(CaptureStatus.Holding, king.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Held, target.Agent.Status);
+            Assert.AreEqual(king.Agent, target.Agent.HeldBy);
+            Assert.AreEqual(target.Agent, king.Agent.HeldTarget);
+            Assert.AreEqual(MovementState.Holding, king.StateController.PersistentState);
+            Assert.AreEqual(MovementState.Held, target.StateController.PersistentState);
             Assert.IsFalse(king.Agent.IsReleaseStunned);
         }
         finally
         {
+            Object.DestroyImmediate(king.GameObject);
+            Object.DestroyImmediate(target.GameObject);
+        }
+    }
+
+    [Test]
+    public void KingCanCompleteCaptureTargetHeldByAlly()
+    {
+        var holder = CreateAgent("Ally Holder", TeamId.Blue, MovementState.Attacker);
+        var king = CreateAgent("Ally King", TeamId.Blue, MovementState.King);
+        var target = CreateAgent("Held Enemy", TeamId.Red, MovementState.Neutral);
+
+        try
+        {
+            Assert.IsTrue(holder.Agent.TryHold(target.Agent));
+            Assert.IsTrue(king.Agent.CompleteCapture(target.Agent));
+
+            Assert.AreEqual(CaptureStatus.Free, holder.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Free, king.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Captured, target.Agent.Status);
+            Assert.IsNull(holder.Agent.HeldTarget);
+            Assert.IsNull(target.Agent.HeldBy);
+            Assert.AreEqual(MovementState.Attacker, holder.StateController.PersistentState);
+            Assert.AreEqual(MovementState.King, king.StateController.PersistentState);
+            Assert.AreEqual(MovementState.Captured, target.StateController.PersistentState);
+            Assert.AreEqual(1, king.Agent.Team.FinalCaptureCount);
+        }
+        finally
+        {
+            Object.DestroyImmediate(holder.GameObject);
             Object.DestroyImmediate(king.GameObject);
             Object.DestroyImmediate(target.GameObject);
         }
@@ -565,26 +603,28 @@ public sealed class CaptureInteractionTests
     public void CompleteCaptureRejectsCaptorOrTargetWithoutTeam()
     {
         var king = CreateAgent("No Team Guard King", TeamId.Blue, MovementState.King);
+        var holder = CreateAgent("No Team Guard Holder", TeamId.Blue, MovementState.Attacker);
         var target = CreateAgent("No Team Guard Target", TeamId.Red, MovementState.Neutral);
 
         try
         {
-            Assert.IsTrue(king.Agent.TryHold(target.Agent));
+            Assert.IsTrue(holder.Agent.TryHold(target.Agent));
 
             king.Agent.Team.Configure(TeamId.None);
             Assert.IsFalse(king.Agent.CompleteCapture(target.Agent));
-            Assert.AreEqual(CaptureStatus.Holding, king.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Holding, holder.Agent.Status);
             Assert.AreEqual(CaptureStatus.Held, target.Agent.Status);
 
             king.Agent.Team.Configure(TeamId.Blue);
             target.Agent.Team.Configure(TeamId.None);
             Assert.IsFalse(king.Agent.CompleteCapture(target.Agent));
-            Assert.AreEqual(CaptureStatus.Holding, king.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Holding, holder.Agent.Status);
             Assert.AreEqual(CaptureStatus.Held, target.Agent.Status);
         }
         finally
         {
             Object.DestroyImmediate(king.GameObject);
+            Object.DestroyImmediate(holder.GameObject);
             Object.DestroyImmediate(target.GameObject);
         }
     }
@@ -593,16 +633,18 @@ public sealed class CaptureInteractionTests
     public void FinalCaptureTargetWithoutTeamDoesNotBuildHoldProgress()
     {
         var king = CreateAgent("No Team Progress King", TeamId.Blue, MovementState.King);
+        var holder = CreateAgent("No Team Progress Holder", TeamId.Blue, MovementState.Attacker);
         var target = CreateAgent("No Team Progress Target", TeamId.Red, MovementState.Neutral);
         var captureSystem = king.GameObject.AddComponent<LocalCaptureSystem>();
 
         king.GameObject.transform.position = Vector3.zero;
+        holder.GameObject.transform.position = Vector3.forward * 0.5f;
         target.GameObject.transform.position = Vector3.forward;
-        captureSystem.Configure(king.Agent, new[] { king.Agent, target.Agent });
+        captureSystem.Configure(king.Agent, new[] { king.Agent, holder.Agent, target.Agent });
 
         try
         {
-            Assert.IsTrue(king.Agent.TryHold(target.Agent));
+            Assert.IsTrue(holder.Agent.TryHold(target.Agent));
 
             target.Agent.Team.Configure(TeamId.None);
             Assert.IsFalse(captureSystem.TickFinalCapture(king.Agent, CaptureInteractionRules.CaptureHoldSeconds * 0.5f));
@@ -612,6 +654,34 @@ public sealed class CaptureInteractionTests
             king.Agent.Team.Configure(TeamId.None);
             Assert.IsFalse(captureSystem.TickFinalCapture(king.Agent, CaptureInteractionRules.CaptureHoldSeconds * 0.5f));
             Assert.AreEqual(0f, captureSystem.CaptureHoldProgress01);
+        }
+        finally
+        {
+            Object.DestroyImmediate(captureSystem);
+            Object.DestroyImmediate(king.GameObject);
+            Object.DestroyImmediate(holder.GameObject);
+            Object.DestroyImmediate(target.GameObject);
+        }
+    }
+
+    [Test]
+    public void OwnHeldTargetDoesNotBuildFinalCaptureProgress()
+    {
+        var king = CreateAgent("Own Hold Progress King", TeamId.Blue, MovementState.King);
+        var target = CreateAgent("Own Hold Progress Target", TeamId.Red, MovementState.Neutral);
+        var captureSystem = king.GameObject.AddComponent<LocalCaptureSystem>();
+
+        king.GameObject.transform.position = Vector3.zero;
+        target.GameObject.transform.position = Vector3.forward;
+        captureSystem.Configure(king.Agent, new[] { king.Agent, target.Agent });
+
+        try
+        {
+            Assert.IsTrue(king.Agent.TryHold(target.Agent));
+            Assert.IsFalse(captureSystem.TickFinalCapture(king.Agent, CaptureInteractionRules.CaptureHoldSeconds));
+            Assert.AreEqual(0f, captureSystem.CaptureHoldProgress01);
+            Assert.AreEqual(CaptureStatus.Holding, king.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Held, target.Agent.Status);
         }
         finally
         {

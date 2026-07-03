@@ -63,6 +63,7 @@ public sealed class LocalMatchFlowPresenterTests
     [Test]
     public void CapturedDefenderDoesNotReenter()
     {
+        var holder = CreateAgent("Blue Holder", TeamId.Blue, MovementState.Attacker);
         var king = CreateAgent("Blue King", TeamId.Blue, MovementState.King);
         var defender = CreateAgent("Captured Red Defender", TeamId.Red, MovementState.Neutral);
         var presenterObject = new GameObject("Flow Presenter");
@@ -74,7 +75,7 @@ public sealed class LocalMatchFlowPresenterTests
 
         try
         {
-            Assert.IsTrue(king.Agent.TryHold(defender.Agent));
+            Assert.IsTrue(holder.Agent.TryHold(defender.Agent));
             Assert.IsTrue(king.Agent.CompleteCapture(defender.Agent));
 
             var presenter = presenterObject.AddComponent<LocalMatchFlowPresenter>();
@@ -103,6 +104,7 @@ public sealed class LocalMatchFlowPresenterTests
             Object.DestroyImmediate(spawnObject);
             Object.DestroyImmediate(bannerObject);
             Object.DestroyImmediate(presenterObject);
+            Object.DestroyImmediate(holder.GameObject);
             Object.DestroyImmediate(king.GameObject);
             Object.DestroyImmediate(defender.GameObject);
         }

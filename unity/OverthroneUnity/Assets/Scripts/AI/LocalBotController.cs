@@ -94,6 +94,12 @@ namespace Overthrone
 
             captureSystem?.TryRescueNearby(agent);
 
+            if (agent.Status == CaptureStatus.Holding)
+            {
+                input.ClearManualInput();
+                return;
+            }
+
             var heldEnemy = FindHeldEnemyForKing();
             if (heldEnemy != null)
             {
@@ -106,12 +112,6 @@ namespace Overthrone
                 }
 
                 MoveToward(heldEnemy.transform.position, deltaTime, true);
-                return;
-            }
-
-            if (agent.Status == CaptureStatus.Holding)
-            {
-                input.ClearManualInput();
                 return;
             }
 
@@ -156,7 +156,7 @@ namespace Overthrone
 
         private PlayerCaptureAgent FindHeldEnemyForKing()
         {
-            if (agent == null || agent.CaptureAuthorityState != MovementState.King)
+            if (agent == null || agent.Status != CaptureStatus.Free || agent.CaptureAuthorityState != MovementState.King)
             {
                 return null;
             }

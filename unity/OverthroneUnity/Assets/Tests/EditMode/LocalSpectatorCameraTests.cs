@@ -196,8 +196,16 @@ public sealed class LocalSpectatorCameraTests
 
     private static void Capture(PlayerCaptureAgent king, PlayerCaptureAgent target)
     {
-        Assert.IsTrue(king.TryHold(target));
-        Assert.IsTrue(king.CompleteCapture(target));
+        var holderFixture = CreateAgent($"{king.name} Holder", king.Team.Team, MovementState.Attacker);
+        try
+        {
+            Assert.IsTrue(holderFixture.Agent.TryHold(target));
+            Assert.IsTrue(king.CompleteCapture(target));
+        }
+        finally
+        {
+            Object.DestroyImmediate(holderFixture.GameObject);
+        }
     }
 
     private static AgentFixture CreateAgent(string name, TeamId team, MovementState state)

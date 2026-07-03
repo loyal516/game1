@@ -40,8 +40,14 @@ namespace Overthrone
         public static bool CanFinalCapture(MovementState state, CaptureStatus captorStatus, CaptureStatus targetStatus)
         {
             return state == MovementState.King
-                && captorStatus != CaptureStatus.Captured
+                && captorStatus == CaptureStatus.Free
                 && targetStatus == CaptureStatus.Held;
+        }
+
+        public static bool CanFinalCapture(MovementState state, CaptureStatus captorStatus, CaptureStatus targetStatus, bool captorIsTargetHolder)
+        {
+            return !captorIsTargetHolder
+                && CanFinalCapture(state, captorStatus, targetStatus);
         }
 
         public static bool CanRescue(TeamId rescuerTeam, TeamId heldTeam, CaptureStatus rescuerStatus, CaptureStatus heldStatus)

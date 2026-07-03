@@ -134,7 +134,7 @@ namespace Overthrone
                 return false;
             }
 
-            if (!CaptureInteractionRules.CanFinalCapture(CaptureAuthorityState, Status, target.Status))
+            if (!CaptureInteractionRules.CanFinalCapture(CaptureAuthorityState, Status, target.Status, target.HeldBy == this))
             {
                 return false;
             }

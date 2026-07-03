@@ -341,6 +341,40 @@ public sealed class LocalBotControllerTests
         }
     }
 
+    [Test]
+    public void KingBotHoldingOwnTargetDoesNotAttemptFinalCapture()
+    {
+        var bot = CreateAgent("Solo King Bot", TeamId.Blue, MovementState.King, Vector3.zero);
+        var target = CreateAgent("Solo King Target", TeamId.Red, MovementState.Neutral, Vector3.forward);
+        var captureSystemObject = new GameObject("Solo King Capture System");
+        var captureSystem = captureSystemObject.AddComponent<LocalCaptureSystem>();
+
+        try
+        {
+            var agents = new[] { bot.Agent, target.Agent };
+            captureSystem.Configure(bot.Agent, agents);
+            Assert.IsTrue(bot.Agent.TryHold(target.Agent));
+            bot.Input.SetManualInput(Vector2.up, captureHeld: true);
+
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(System.Array.Empty<CapturePoint>(), new[] { bot.Team, target.Team }, agents, captureSystem);
+
+            controller.Tick(CaptureInteractionRules.CaptureHoldSeconds);
+
+            Assert.IsNull(controller.CurrentAgentTarget);
+            Assert.AreEqual(CaptureStatus.Holding, bot.Agent.Status);
+            Assert.AreEqual(CaptureStatus.Held, target.Agent.Status);
+            Assert.IsFalse(bot.Input.CaptureHeld);
+            Assert.AreEqual(0f, captureSystem.CaptureHoldProgress01);
+        }
+        finally
+        {
+            Object.DestroyImmediate(captureSystemObject);
+            bot.Destroy();
+            target.Destroy();
+        }
+    }
+
     private static GameObject CreateCapturePoint(string name, Vector3 position)
     {
         var pointObject = new GameObject(name);
