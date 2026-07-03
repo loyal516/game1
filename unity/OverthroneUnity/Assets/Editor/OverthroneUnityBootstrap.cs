@@ -205,6 +205,10 @@ public static class OverthroneUnityBootstrap
         ground.isStatic = true;
         var renderer = ground.GetComponent<MeshRenderer>();
         renderer.sharedMaterial = CreateMaterial("Assets/Art/Materials/GardenGrass.mat", new Color(0.46f, 0.78f, 0.34f));
+        var surface = ground.AddComponent<FootstepSurface>();
+        surface.VolumeMultiplier = 0.75f;
+        surface.PitchMultiplier = 1.08f;
+        surface.NoiseRadiusMultiplier = 0.8f;
         return ground;
     }
 

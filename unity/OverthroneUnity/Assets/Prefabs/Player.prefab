@@ -387,7 +387,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   footstepClip: {fileID: 0}
   footstepVolume: 0.42
+  footstepPitch: 1
   minimumMoveSpeed: 0.5
+  groundProbeOriginOffset: 0.2
+  groundProbeDistance: 0.35
 --- !u!1 &7767845865051857868
 GameObject:
   m_ObjectHideFlags: 0
