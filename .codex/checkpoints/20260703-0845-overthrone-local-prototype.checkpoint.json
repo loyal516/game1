@@ -2,7 +2,7 @@
   "goal": "GDD 기준으로 Overthrone 로컬 프로토타입을 가능한 범위까지 구현하고, 미완료 항목은 명시한 뒤 wrap 문서와 git 커밋으로 세션을 마감한다.",
   "status": "in_progress",
   "created_at": "2026-07-03 08:45",
-  "updated_at": "2026-07-03 10:04",
+  "updated_at": "2026-07-03 20:13",
   "progress": [
     {
       "phase": "문서 재정리와 방향 결정",
@@ -117,6 +117,19 @@
         "unity/OverthroneUnity/README.md",
         "GDD.md"
       ]
+    },
+    {
+      "phase": "적 소음 조사 AI MVP",
+      "summary": "AIHearingSensor를 LocalBotController 행동 선택에 연결해, 봇이 보이는 적 추격/구출/포획보다 낮고 점령 포인트 이동보다 높은 우선순위로 적 팀 소음 위치를 조사하게 했다. NPC 5명에는 AIHearingSensor뿐 아니라 AudioSource와 PlayerNoiseEmitter도 붙여 실제 씬에서 봇끼리도 달리기 소음을 낼 수 있게 했다. 센서는 마지막 소음을 기억하지만, LocalBotController는 적으로 판정된 소음만 별도 캐시에 보존하므로 아군 소음이 직전 적 소음 조사를 덮어쓰지 않는다. 독립 리뷰에서 P2/P3 피드백을 받은 뒤 후속 패치와 재리뷰를 거쳐 GO 판정을 받았다.",
+      "evidence": [
+        "unity/OverthroneUnity/Assets/Scripts/AI/AIHearingSensor.cs",
+        "unity/OverthroneUnity/Assets/Scripts/AI/LocalBotController.cs",
+        "unity/OverthroneUnity/Assets/Editor/OverthroneUnityBootstrap.cs",
+        "unity/OverthroneUnity/Assets/Scenes/Prototype.unity",
+        "unity/OverthroneUnity/Assets/Tests/EditMode/LocalBotControllerTests.cs",
+        "unity/OverthroneUnity/README.md",
+        "GDD.md"
+      ]
     }
   ],
   "decisions": [
@@ -131,7 +144,10 @@
     "포기 승리는 양 팀 roster가 모두 존재한 뒤 한 팀 active/enabled 참가자가 0명이 된 경우에만 적용해 초기 미구성 상태를 오판하지 않는다.",
     "왕이 혼자 Tackle->Hold->Capture까지 가능한 회색지대는 이번 패치에서 고치지 않고 설계 질문으로 남긴다.",
     "로컬 봇 pathing은 NavMesh를 steering target 계산에만 사용하고 실제 위치/속도 적용은 PlayerInputReader와 PlayerMotor 경로를 유지한다.",
-    "NavMeshData는 씬에 binary로 직접 박지 않고 `Assets/Scenes/Prototype/NavMesh-MoonlitGardenBlockout.asset`으로 분리해 `Prototype.unity`를 diff 가능한 text YAML로 유지한다."
+    "NavMeshData는 씬에 binary로 직접 박지 않고 `Assets/Scenes/Prototype/NavMesh-MoonlitGardenBlockout.asset`으로 분리해 `Prototype.unity`를 diff 가능한 text YAML로 유지한다.",
+    "소리 기반 봇 조사는 완성형 행동 트리가 아니라 MVP 우선순위로 둔다. 왕 최종 포획, holding/held/captured 처리, 아군 구출, visible enemy 추격/덮치기가 먼저이고, 적 소음 조사는 점령 포인트 이동보다만 우선한다.",
+    "AIHearingSensor는 일반 소음 기억 센서로 유지하고, 팀 기준 필터링과 적 소음 캐시는 LocalBotController가 담당한다. 그래야 센서가 특정 팀/봇 정책에 종속되지 않는다.",
+    "NPC도 실제 소음을 내야 봇끼리의 소음 조사가 문서와 일치하므로, roster NPC 생성 시 AudioSource와 PlayerNoiseEmitter를 AIHearingSensor와 함께 붙인다."
   ],
   "blockers": [
     {
@@ -149,6 +165,14 @@
     {
       "issue": "multi-agent reviewer role이 계정에서 지원되지 않는 모델로 매핑되어 실행되지 않았다.",
       "resolution": "default subagent를 read-only 독립 리뷰어로 다시 실행했다."
+    },
+    {
+      "issue": "독립 리뷰에서 NPC가 AIHearingSensor만 갖고 PlayerNoiseEmitter/AudioSource가 없어 봇끼리 소음을 낼 수 없다는 P2가 확인되었다.",
+      "resolution": "CreateRosterNpc에 AudioSource와 PlayerNoiseEmitter를 추가하고 Bootstrap을 재실행했다. Prototype.unity에서 AIHearingSensor 6개, PlayerNoiseEmitter 6개, AudioSource 7개를 확인했다."
+    },
+    {
+      "issue": "AIHearingSensor가 마지막 소음 하나만 기억하므로 적 소음 직후 아군 소음이 들어오면 LocalBotController가 적 소음 조사를 잃는 P3 edge case가 확인되었다.",
+      "resolution": "LocalBotController에 enemy-only noise memory를 추가해 적으로 판정된 소음만 rememberedEnemyNoisePosition에 캐시하고, 아군/무팀/자기 소음은 캐시를 덮어쓰지 않게 했다."
     }
   ],
   "open_questions": [
@@ -157,13 +181,13 @@
     "슬라임 좁은 통로 레벨 검증과 shader/softbody VFX는 미구현.",
     "한 씬에서 여러 라운드를 재시작할 때 슬라임 1회 탈출권 reset hook 필요.",
     "dead channel 실제 입력 UI, 온라인 채팅, moderation 설계 필요.",
-    "로컬 봇은 NavMesh path corner 추종까지 보강됐지만 dynamic obstacle avoidance, 수색/경계 상태, 행동 트리/전술 판단은 아직 없다.",
+    "로컬 봇은 NavMesh path corner 추종과 적 소음 조사 MVP까지 보강됐지만 dynamic obstacle avoidance, 수색/경계 상태 고도화, 행동 트리/전술 판단은 아직 없다.",
     "왕 단독 최종 포획을 허용할지, 반드시 제3자 협동을 강제할지 설계 결정 필요.",
     "EditMode 규칙 검증은 통과했지만 실제 PlayMode/E2E 장시간 플레이 검증은 다음 단계다."
   ],
   "handoff": {
     "local_run": "Unity Hub에서 unity/OverthroneUnity 프로젝트를 열고 Assets/Scenes/Prototype.unity를 실행한다.",
     "test_command": "/Applications/Unity/Hub/Editor/6000.0.78f1/Unity.app/Contents/MacOS/Unity -batchmode -projectPath /Users/wy/Github-repos/game1/unity/OverthroneUnity -runTests -testPlatform EditMode -testResults /Users/wy/Github-repos/game1/unity/OverthroneUnity/TestResults.xml -logFile -",
-    "last_verification": "2026-07-03 10:04 KST 기준 Unity EditMode 120/120 Passed. 10:02 KST Unity bootstrap exit 0. `Prototype.unity` ASCII text 유지, NavMeshSurface가 외부 NavMeshData asset guid 10352c7990d43416c936ae80f31dbd77 참조 확인, NPC 5명 NavMeshAgent 및 baseOffset 0 확인, git diff --check Passed."
+    "last_verification": "2026-07-03 20:13 KST 기준 Unity EditMode 123/123 Passed. Unity bootstrap exit 0. `Prototype.unity`에서 AIHearingSensor guid 6개, PlayerNoiseEmitter guid 6개, AudioSource 7개 확인. 독립 재리뷰 verdict Ready/GO, 남은 P0-P2 없음. git diff --check Passed."
   }
 }

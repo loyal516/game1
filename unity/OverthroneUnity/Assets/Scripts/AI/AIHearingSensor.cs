@@ -23,27 +23,38 @@ namespace Overthrone
             NoiseSystem.NoiseEmitted -= OnNoiseEmitted;
         }
 
+        private void OnDestroy()
+        {
+            NoiseSystem.NoiseEmitted -= OnNoiseEmitted;
+        }
+
         private void Update()
         {
             memoryTimer = Mathf.Max(0f, memoryTimer - Time.deltaTime);
         }
 
-        private void OnNoiseEmitted(NoiseEvent noiseEvent)
+        public bool TryRememberNoise(NoiseEvent noiseEvent)
         {
             if (noiseEvent.Source == gameObject)
             {
-                return;
+                return false;
             }
 
             var maxDistance = noiseEvent.Radius * hearingMultiplier;
             if (Vector3.Distance(transform.position, noiseEvent.Position) > maxDistance)
             {
-                return;
+                return false;
             }
 
             LastHeardSource = noiseEvent.Source;
             LastHeardPosition = noiseEvent.Position;
             memoryTimer = memorySeconds;
+            return true;
+        }
+
+        private void OnNoiseEmitted(NoiseEvent noiseEvent)
+        {
+            TryRememberNoise(noiseEvent);
         }
 
         private void OnDrawGizmosSelected()

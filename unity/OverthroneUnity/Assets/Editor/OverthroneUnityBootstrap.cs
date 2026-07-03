@@ -333,6 +333,10 @@ public static class OverthroneUnityBootstrap
         target.AddComponent<PlayerCaptureAgent>();
         target.AddComponent<TackleHitbox>();
         ConfigureNavMeshAgent(target, characterController);
+        var audioSource = target.AddComponent<AudioSource>();
+        audioSource.spatialBlend = 1f;
+        target.AddComponent<PlayerNoiseEmitter>();
+        target.AddComponent<AIHearingSensor>();
         target.AddComponent<LocalBotController>();
         return target;
     }

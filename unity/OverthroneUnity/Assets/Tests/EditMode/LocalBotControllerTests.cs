@@ -36,6 +36,116 @@ public sealed class LocalBotControllerTests
     }
 
     [Test]
+    public void HeardEnemyNoiseTakesPriorityOverCapturePoint()
+    {
+        var bot = CreateAgent("Hearing Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Noisy Enemy", TeamId.Red, MovementState.Attacker, new Vector3(12f, 0f, 0f));
+        var pointObject = CreateCapturePoint("Hearing Capture Point", new Vector3(0f, 0f, 10f));
+        AIHearingSensor hearingSensor = null;
+
+        try
+        {
+            hearingSensor = AddEnabledHearingSensor(bot.GameObject);
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team }, new[] { bot.Agent, enemy.Agent }, null);
+
+            var heardPosition = enemy.GameObject.transform.position;
+            Assert.IsTrue(hearingSensor.TryRememberNoise(new NoiseEvent(enemy.GameObject, heardPosition, 25f, MovementState.Attacker)));
+            Assert.IsTrue(hearingSensor.HasHeardNoise);
+            controller.Tick(0f);
+
+            Assert.IsTrue(controller.IsInvestigatingNoise);
+            AssertVectorApproximately(heardPosition, controller.CurrentNoiseTarget);
+            Assert.IsNull(controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(heardPosition, controller.LastSteeringTarget);
+            Assert.Greater(bot.Input.Move.x, 0.99f);
+            Assert.AreEqual(0f, bot.Input.Move.y, DirectionTolerance);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void SameTeamNoiseIsIgnoredForCapturePointSelection()
+    {
+        var bot = CreateAgent("Friendly Hearing Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var ally = CreateAgent("Noisy Ally", TeamId.Blue, MovementState.Attacker, new Vector3(12f, 0f, 0f));
+        var pointObject = CreateCapturePoint("Friendly Noise Capture Point", new Vector3(0f, 0f, 10f));
+        AIHearingSensor hearingSensor = null;
+
+        try
+        {
+            hearingSensor = AddEnabledHearingSensor(bot.GameObject);
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, ally.Team }, new[] { bot.Agent, ally.Agent }, null);
+
+            Assert.IsTrue(hearingSensor.TryRememberNoise(new NoiseEvent(ally.GameObject, ally.GameObject.transform.position, 25f, MovementState.Attacker)));
+            Assert.IsTrue(hearingSensor.HasHeardNoise);
+            controller.Tick(0f);
+
+            Assert.IsFalse(controller.IsInvestigatingNoise);
+            AssertVectorApproximately(bot.GameObject.transform.position, controller.CurrentNoiseTarget);
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.AreEqual(0f, bot.Input.Move.x, DirectionTolerance);
+            Assert.Greater(bot.Input.Move.y, 0.99f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            ally.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void FriendlyNoiseDoesNotOverwriteRememberedEnemyNoise()
+    {
+        var bot = CreateAgent("Enemy Memory Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Remembered Enemy", TeamId.Red, MovementState.Attacker, new Vector3(12f, 0f, 0f));
+        var ally = CreateAgent("Distracting Ally", TeamId.Blue, MovementState.Attacker, new Vector3(0f, 0f, 12f));
+        var pointObject = CreateCapturePoint("Enemy Memory Capture Point", new Vector3(0f, 0f, 10f));
+        AIHearingSensor hearingSensor = null;
+
+        try
+        {
+            hearingSensor = AddEnabledHearingSensor(bot.GameObject);
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team, ally.Team }, new[] { bot.Agent, enemy.Agent, ally.Agent }, null);
+
+            var enemyPosition = enemy.GameObject.transform.position;
+            Assert.IsTrue(hearingSensor.TryRememberNoise(new NoiseEvent(enemy.GameObject, enemyPosition, 25f, MovementState.Attacker)));
+            controller.Tick(0f);
+            Assert.IsTrue(controller.IsInvestigatingNoise);
+
+            Assert.IsTrue(hearingSensor.TryRememberNoise(new NoiseEvent(ally.GameObject, ally.GameObject.transform.position, 25f, MovementState.Attacker)));
+            controller.Tick(0f);
+
+            Assert.IsTrue(controller.IsInvestigatingNoise);
+            AssertVectorApproximately(enemyPosition, controller.CurrentNoiseTarget);
+            Assert.IsNull(controller.CurrentPointTarget);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            ally.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
     public void DirectFallbackUsesDestinationVectorWhenNoNavMeshPathExists()
     {
         var bot = CreateAgent("Direct Fallback Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
@@ -238,6 +348,11 @@ public sealed class LocalBotControllerTests
         point.Configure("A", 5f);
         pointObject.transform.position = position;
         return pointObject;
+    }
+
+    private static AIHearingSensor AddEnabledHearingSensor(GameObject target)
+    {
+        return target.AddComponent<AIHearingSensor>();
     }
 
     private static TemporaryNavMesh CreateTemporaryNavMeshWithWall()

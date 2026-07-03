@@ -28,15 +28,21 @@ namespace Overthrone
         [SerializeField] private float turnDegreesPerSecond = 540f;
         [SerializeField] private float navMeshSampleDistance = 1.5f;
         [SerializeField] private float navMeshCornerArrivalDistance = 0.35f;
+        [SerializeField] private float enemyNoiseMemorySeconds = 4f;
 
         private NavMeshPath navMeshPath;
         private PlayerInputReader input;
         private PlayerMotor motor;
         private PlayerCaptureAgent agent;
         private LocalPlayerTeam team;
+        private AIHearingSensor hearingSensor;
+        private Vector3 rememberedEnemyNoisePosition;
+        private float rememberedEnemyNoiseTimer;
 
         public CapturePoint CurrentPointTarget { get; private set; }
         public PlayerCaptureAgent CurrentAgentTarget { get; private set; }
+        public bool IsInvestigatingNoise { get; private set; }
+        public Vector3 CurrentNoiseTarget { get; private set; }
         public LocalBotMoveMode LastMoveMode { get; private set; }
         public Vector3 LastSteeringTarget { get; private set; }
 
@@ -69,6 +75,8 @@ namespace Overthrone
             deltaTime = Mathf.Max(0f, deltaTime);
             CurrentPointTarget = null;
             CurrentAgentTarget = null;
+            IsInvestigatingNoise = false;
+            CurrentNoiseTarget = transform.position;
             ClearSteeringTelemetry();
 
             if (input == null || agent == null || team == null || motor == null)
@@ -76,6 +84,7 @@ namespace Overthrone
                 return;
             }
 
+            UpdateEnemyNoiseMemory(deltaTime);
             agent.TickTackleCooldown(deltaTime, this);
             if (agent.Status == CaptureStatus.Captured || agent.Status == CaptureStatus.Held)
             {
@@ -123,6 +132,14 @@ namespace Overthrone
                 {
                     captureSystem?.TryTackle(agent);
                 }
+                return;
+            }
+
+            if (TryGetEnemyNoisePosition(out var noisePosition))
+            {
+                IsInvestigatingNoise = true;
+                CurrentNoiseTarget = noisePosition;
+                MoveToward(noisePosition, deltaTime, true);
                 return;
             }
 
@@ -226,6 +243,57 @@ namespace Overthrone
             }
 
             return best;
+        }
+
+        private bool TryGetEnemyNoisePosition(out Vector3 noisePosition)
+        {
+            noisePosition = transform.position;
+            if (rememberedEnemyNoiseTimer <= 0f)
+            {
+                return false;
+            }
+
+            noisePosition = rememberedEnemyNoisePosition;
+            return true;
+        }
+
+        private void UpdateEnemyNoiseMemory(float deltaTime)
+        {
+            rememberedEnemyNoiseTimer = Mathf.Max(0f, rememberedEnemyNoiseTimer - deltaTime);
+            if (TryReadCurrentEnemyNoise(out var noisePosition))
+            {
+                rememberedEnemyNoisePosition = noisePosition;
+                rememberedEnemyNoiseTimer = enemyNoiseMemorySeconds;
+            }
+        }
+
+        private bool TryReadCurrentEnemyNoise(out Vector3 noisePosition)
+        {
+            noisePosition = transform.position;
+            if (hearingSensor == null || !hearingSensor.HasHeardNoise)
+            {
+                return false;
+            }
+
+            var source = hearingSensor.LastHeardSource;
+            if (source == null || source == gameObject)
+            {
+                return false;
+            }
+
+            var sourceTeam = source.GetComponent<LocalPlayerTeam>();
+            if (sourceTeam == null || sourceTeam.Team == TeamId.None || team.Team == TeamId.None)
+            {
+                return false;
+            }
+
+            if (sourceTeam.Team == team.Team)
+            {
+                return false;
+            }
+
+            noisePosition = hearingSensor.LastHeardPosition;
+            return true;
         }
 
         private CapturePoint ChooseCapturePoint()
@@ -357,6 +425,7 @@ namespace Overthrone
             motor ??= GetComponent<PlayerMotor>();
             agent ??= GetComponent<PlayerCaptureAgent>();
             team ??= GetComponent<LocalPlayerTeam>();
+            hearingSensor ??= GetComponent<AIHearingSensor>();
         }
 
         private void OnValidate()
@@ -366,6 +435,7 @@ namespace Overthrone
             turnDegreesPerSecond = Mathf.Max(0f, turnDegreesPerSecond);
             navMeshSampleDistance = Mathf.Max(0.1f, navMeshSampleDistance);
             navMeshCornerArrivalDistance = Mathf.Max(0.05f, navMeshCornerArrivalDistance);
+            enemyNoiseMemorySeconds = Mathf.Max(0f, enemyNoiseMemorySeconds);
         }
     }
 }
