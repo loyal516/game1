@@ -36,6 +36,142 @@ public sealed class LocalBotControllerTests
     }
 
     [Test]
+    public void VisibleEnemyTakesPriorityOverCapturePoint()
+    {
+        var bot = CreateAgent("Sight Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Visible Enemy", TeamId.Red, MovementState.Neutral, new Vector3(0f, 0f, 6f));
+        var pointObject = CreateCapturePoint("Sight Fallback Point", new Vector3(8f, 0f, 0f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team }, new[] { bot.Agent, enemy.Agent }, null);
+            Physics.SyncTransforms();
+
+            controller.Tick(0f);
+
+            Assert.IsTrue(controller.HasSightSuspicion);
+            Assert.IsTrue(controller.IsInvestigatingSight);
+            Assert.AreEqual(enemy.Agent, controller.CurrentSightAgent);
+            AssertVectorApproximately(enemy.GameObject.transform.position, controller.CurrentSightTarget);
+            Assert.IsNull(controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(enemy.GameObject.transform.position, controller.LastSteeringTarget);
+            Assert.AreEqual(0f, bot.Input.Move.x, DirectionTolerance);
+            Assert.Greater(bot.Input.Move.y, 0.99f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void OccludedEnemyIsIgnoredForCapturePointSelection()
+    {
+        var bot = CreateAgent("Occluded Sight Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Occluded Enemy", TeamId.Red, MovementState.Neutral, new Vector3(0f, 0f, 6f));
+        var pointObject = CreateCapturePoint("Occluded Sight Point", new Vector3(8f, 0f, 0f));
+        var wall = CreateOccluder("Sight Wall", new Vector3(0f, 1f, 3f), new Vector3(2f, 2f, 0.5f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team }, new[] { bot.Agent, enemy.Agent }, null);
+            Physics.SyncTransforms();
+
+            controller.Tick(0f);
+
+            Assert.IsFalse(controller.HasSightSuspicion);
+            Assert.IsFalse(controller.IsInvestigatingSight);
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.Greater(bot.Input.Move.x, 0.99f);
+            Assert.AreEqual(0f, bot.Input.Move.y, DirectionTolerance);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            Object.DestroyImmediate(pointObject);
+            Object.DestroyImmediate(wall);
+        }
+    }
+
+    [Test]
+    public void EnemyOutsideSightAngleIsIgnoredForCapturePointSelection()
+    {
+        var bot = CreateAgent("Sight Angle Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Side Enemy", TeamId.Red, MovementState.Neutral, new Vector3(6f, 0f, 0f));
+        var pointObject = CreateCapturePoint("Sight Angle Point", new Vector3(0f, 0f, 8f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team }, new[] { bot.Agent, enemy.Agent }, null);
+            Physics.SyncTransforms();
+
+            controller.Tick(0f);
+
+            Assert.IsFalse(controller.HasSightSuspicion);
+            Assert.IsFalse(controller.IsInvestigatingSight);
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.AreEqual(0f, bot.Input.Move.x, DirectionTolerance);
+            Assert.Greater(bot.Input.Move.y, 0.99f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void SightSuspicionKeepsLastSeenPositionBriefly()
+    {
+        var bot = CreateAgent("Sight Memory Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var enemy = CreateAgent("Remembered Sight Enemy", TeamId.Red, MovementState.Neutral, new Vector3(0f, 0f, 6f));
+        var pointObject = CreateCapturePoint("Sight Memory Point", new Vector3(8f, 0f, 0f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team, enemy.Team }, new[] { bot.Agent, enemy.Agent }, null);
+            Physics.SyncTransforms();
+
+            controller.Tick(0f);
+            var lastSeenPosition = enemy.GameObject.transform.position;
+            enemy.GameObject.transform.position = new Vector3(0f, 0f, -6f);
+            Physics.SyncTransforms();
+            controller.Tick(0.5f);
+
+            Assert.IsTrue(controller.HasSightSuspicion);
+            Assert.IsTrue(controller.IsInvestigatingSight);
+            AssertVectorApproximately(lastSeenPosition, controller.CurrentSightTarget);
+            Assert.IsNull(controller.CurrentPointTarget);
+        }
+        finally
+        {
+            bot.Destroy();
+            enemy.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
     public void HeardEnemyNoiseTakesPriorityOverCapturePoint()
     {
         var bot = CreateAgent("Hearing Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
@@ -601,6 +737,15 @@ public sealed class LocalBotControllerTests
     private static AIHearingSensor AddEnabledHearingSensor(GameObject target)
     {
         return target.AddComponent<AIHearingSensor>();
+    }
+
+    private static GameObject CreateOccluder(string name, Vector3 position, Vector3 scale)
+    {
+        var occluder = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        occluder.name = name;
+        occluder.transform.position = position;
+        occluder.transform.localScale = scale;
+        return occluder;
     }
 
     private static void TickRepeated(LocalBotController controller, int count, float deltaTime)

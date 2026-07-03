@@ -36,6 +36,11 @@ namespace Overthrone
         [SerializeField] private float noiseGuardDurationSeconds = 1.25f;
         [SerializeField] private float noiseSearchRadius = 2f;
         [SerializeField] private float noiseSearchWaypointSeconds = 0.65f;
+        [SerializeField] private float sightRange = 12f;
+        [SerializeField] private float sightHorizontalFovDegrees = 90f;
+        [SerializeField] private float sightSuspicionMemorySeconds = 1.25f;
+        [SerializeField] private float sightEyeHeight = 1f;
+        [SerializeField] private LayerMask sightOcclusionLayers = Physics.DefaultRaycastLayers;
 
         private NavMeshPath navMeshPath;
         private PlayerInputReader input;
@@ -53,6 +58,9 @@ namespace Overthrone
         private float noiseSearchWaypointTimer;
         private int noiseSearchStep;
         private bool hasConsumedEnemyNoise;
+        private Vector3 rememberedSightPosition;
+        private float sightSuspicionTimer;
+        private PlayerCaptureAgent rememberedSightAgent;
 
         public CapturePoint CurrentPointTarget { get; private set; }
         public PlayerCaptureAgent CurrentAgentTarget { get; private set; }
@@ -60,6 +68,10 @@ namespace Overthrone
         public bool IsSearchingNoise { get; private set; }
         public bool IsGuardingNoise { get; private set; }
         public Vector3 CurrentNoiseTarget { get; private set; }
+        public bool IsInvestigatingSight { get; private set; }
+        public bool HasSightSuspicion => sightSuspicionTimer > 0f;
+        public Vector3 CurrentSightTarget { get; private set; }
+        public PlayerCaptureAgent CurrentSightAgent { get; private set; }
         public LocalBotMoveMode LastMoveMode { get; private set; }
         public Vector3 LastSteeringTarget { get; private set; }
         public bool IsAvoidingDynamicObstacle { get; private set; }
@@ -98,6 +110,9 @@ namespace Overthrone
             IsSearchingNoise = false;
             IsGuardingNoise = false;
             CurrentNoiseTarget = transform.position;
+            IsInvestigatingSight = false;
+            CurrentSightTarget = transform.position;
+            CurrentSightAgent = null;
             ClearSteeringTelemetry();
 
             if (input == null || agent == null || team == null || motor == null)
@@ -106,6 +121,7 @@ namespace Overthrone
             }
 
             UpdateEnemyNoiseMemory(deltaTime);
+            UpdateSightSuspicionMemory(deltaTime);
             agent.TickTackleCooldown(deltaTime, this);
             if (agent.Status == CaptureStatus.Captured || agent.Status == CaptureStatus.Held)
             {
@@ -163,6 +179,15 @@ namespace Overthrone
 
             if (RunNoiseGuard(deltaTime))
             {
+                return;
+            }
+
+            if (TryGetSightSuspicionPosition(out var sightPosition))
+            {
+                IsInvestigatingSight = true;
+                CurrentSightTarget = sightPosition;
+                CurrentSightAgent = rememberedSightAgent;
+                MoveToward(sightPosition, deltaTime, true);
                 return;
             }
 
@@ -281,6 +306,114 @@ namespace Overthrone
             }
 
             return best;
+        }
+
+        private bool TryGetSightSuspicionPosition(out Vector3 sightPosition)
+        {
+            sightPosition = transform.position;
+            if (sightSuspicionTimer <= 0f)
+            {
+                return false;
+            }
+
+            sightPosition = rememberedSightPosition;
+            return true;
+        }
+
+        private void UpdateSightSuspicionMemory(float deltaTime)
+        {
+            sightSuspicionTimer = Mathf.Max(0f, sightSuspicionTimer - deltaTime);
+            if (!TryFindVisibleEnemy(out var visibleEnemy))
+            {
+                return;
+            }
+
+            rememberedSightAgent = visibleEnemy;
+            rememberedSightPosition = visibleEnemy.transform.position;
+            sightSuspicionTimer = sightSuspicionMemorySeconds;
+        }
+
+        private bool TryFindVisibleEnemy(out PlayerCaptureAgent visibleEnemy)
+        {
+            visibleEnemy = null;
+            var bestSqrDistance = float.MaxValue;
+            foreach (var candidate in captureAgents)
+            {
+                if (!CanSuspectBySight(candidate))
+                {
+                    continue;
+                }
+
+                var offset = candidate.transform.position - transform.position;
+                offset.y = 0f;
+                var sqrDistance = offset.sqrMagnitude;
+                if (sqrDistance <= 0.0001f || sqrDistance > sightRange * sightRange || sqrDistance >= bestSqrDistance)
+                {
+                    continue;
+                }
+
+                if (!CaptureInteractionRules.IsInsideForwardCone(transform, candidate.transform.position, sightHorizontalFovDegrees))
+                {
+                    continue;
+                }
+
+                if (!HasLineOfSightTo(candidate))
+                {
+                    continue;
+                }
+
+                visibleEnemy = candidate;
+                bestSqrDistance = sqrDistance;
+            }
+
+            return visibleEnemy != null;
+        }
+
+        private bool CanSuspectBySight(PlayerCaptureAgent candidate)
+        {
+            if (candidate == null || candidate == agent || candidate.Team == null)
+            {
+                return false;
+            }
+
+            if (team.Team == TeamId.None || candidate.Team.Team == TeamId.None || candidate.Team.Team == team.Team)
+            {
+                return false;
+            }
+
+            return candidate.Status != CaptureStatus.Captured && candidate.Status != CaptureStatus.Held;
+        }
+
+        private bool HasLineOfSightTo(PlayerCaptureAgent candidate)
+        {
+            var origin = transform.position + Vector3.up * sightEyeHeight;
+            var target = candidate.transform.position + Vector3.up * sightEyeHeight;
+            var offset = target - origin;
+            var distance = offset.magnitude;
+            if (distance <= 0.0001f)
+            {
+                return true;
+            }
+
+            var hits = Physics.RaycastAll(origin, offset / distance, distance, sightOcclusionLayers, QueryTriggerInteraction.Ignore);
+            Array.Sort(hits, (left, right) => left.distance.CompareTo(right.distance));
+            foreach (var hit in hits)
+            {
+                var hitTransform = hit.collider.transform;
+                if (hitTransform == transform || hitTransform.IsChildOf(transform))
+                {
+                    continue;
+                }
+
+                if (hitTransform == candidate.transform || hitTransform.IsChildOf(candidate.transform))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            return true;
         }
 
         private bool TryGetEnemyNoisePosition(out Vector3 noisePosition)
@@ -654,6 +787,10 @@ namespace Overthrone
             noiseGuardDurationSeconds = Mathf.Max(0f, noiseGuardDurationSeconds);
             noiseSearchRadius = Mathf.Max(0f, noiseSearchRadius);
             noiseSearchWaypointSeconds = Mathf.Max(0.05f, noiseSearchWaypointSeconds);
+            sightRange = Mathf.Max(0f, sightRange);
+            sightHorizontalFovDegrees = Mathf.Clamp(sightHorizontalFovDegrees, 0f, 360f);
+            sightSuspicionMemorySeconds = Mathf.Max(0f, sightSuspicionMemorySeconds);
+            sightEyeHeight = Mathf.Max(0f, sightEyeHeight);
         }
     }
 }
