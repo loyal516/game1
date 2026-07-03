@@ -613,7 +613,8 @@ public static class OverthroneUnityBootstrap
         var teamRailText = CreateUiText("Team Status Rail", root, 16, TextAnchor.UpperLeft);
         teamRailText.horizontalOverflow = HorizontalWrapMode.Wrap;
         teamRailText.verticalOverflow = VerticalWrapMode.Overflow;
-        SetRect(teamRailText.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(360f, 180f), new Vector2(205f, 110f));
+        SetRect(teamRailText.rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(320f, 180f), new Vector2(225f, 110f));
+        var teamStatusIconImages = CreateTeamStatusIconImages(root, matchParticipants.Length);
 
         var pingLogText = CreateUiText("Ping Log Text", root, 18, TextAnchor.MiddleCenter);
         pingLogText.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -714,7 +715,8 @@ public static class OverthroneUnityBootstrap
             deadChannelInputField,
             deadChannelSendButton,
             deadChannelStatusText,
-            deadChannelHintText
+            deadChannelHintText,
+            teamStatusIconImages
         );
 
         var flowPresenter = hud.AddComponent<LocalMatchFlowPresenter>();
@@ -773,6 +775,19 @@ public static class OverthroneUnityBootstrap
         }
 
         return markers;
+    }
+
+    private static Image[] CreateTeamStatusIconImages(Transform parent, int count)
+    {
+        var icons = new Image[count];
+        for (var i = 0; i < icons.Length; i++)
+        {
+            icons[i] = CreateUiImage($"Team Status Icon {i + 1}", parent, Color.white);
+            SetRect(icons[i].rectTransform, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(18f, 18f), new Vector2(38f, 176f - i * 22f));
+            icons[i].gameObject.SetActive(false);
+        }
+
+        return icons;
     }
 
     private static void EnsureEventSystem()

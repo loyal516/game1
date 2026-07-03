@@ -59,6 +59,89 @@ public sealed class PlayerHudUiTests
     }
 
     [Test]
+    public void PlayerHudShowsTeamStatusIconsForActiveParticipantStatesAndHidesStaleSlots()
+    {
+        var king = CreateAgent("Icon Blue King", TeamId.Blue, MovementState.King);
+        var holder = CreateAgent("Icon Red Holder", TeamId.Red, MovementState.King);
+        var held = CreateAgent("Icon Blue Held", TeamId.Blue, MovementState.Neutral);
+        var captureHelper = CreateAgent("Icon Blue Capture Helper", TeamId.Blue, MovementState.Attacker);
+        var captured = CreateAgent("Icon Red Captured", TeamId.Red, MovementState.Neutral);
+        var managerObject = new GameObject("Icon Match Manager");
+        var hudObject = new GameObject("Icon Hud");
+        var statusObject = new GameObject("Icon Status Text", typeof(RectTransform), typeof(Text));
+        var iconObjects = new[]
+        {
+            new GameObject("King Status Icon", typeof(RectTransform), typeof(Image)),
+            new GameObject("Holding Status Icon", typeof(RectTransform), typeof(Image)),
+            new GameObject("Held Status Icon", typeof(RectTransform), typeof(Image)),
+            new GameObject("Captured Status Icon", typeof(RectTransform), typeof(Image)),
+            new GameObject("Stale Status Icon", typeof(RectTransform), typeof(Image))
+        };
+
+        try
+        {
+            Assert.IsTrue(holder.Agent.TryHold(held.Agent));
+            Assert.IsTrue(captureHelper.Agent.TryHold(captured.Agent));
+            Assert.IsTrue(king.Agent.CompleteCapture(captured.Agent));
+
+            var manager = managerObject.AddComponent<LocalMatchManager>();
+            manager.Configure(
+                System.Array.Empty<CapturePoint>(),
+                new[] { king.Team, holder.Team, held.Team, captured.Team }
+            );
+
+            var icons = new Image[iconObjects.Length];
+            for (var i = 0; i < iconObjects.Length; i++)
+            {
+                icons[i] = iconObjects[i].GetComponent<Image>();
+                icons[i].gameObject.SetActive(true);
+                icons[i].color = Color.magenta;
+            }
+
+            var hud = hudObject.AddComponent<PlayerHud>();
+            hud.Configure(
+                king.Motor,
+                null,
+                statusObject.GetComponent<Text>(),
+                localMatchManager: manager,
+                playerCaptureAgent: king.Agent,
+                teamStatusIconImages: icons
+            );
+
+            hud.Refresh();
+
+            AssertTeamStatusIconActive(icons[0], "King");
+            AssertTeamStatusIconActive(icons[1], "Holding");
+            AssertTeamStatusIconActive(icons[2], "Held");
+            AssertTeamStatusIconActive(icons[3], "Captured");
+            Assert.IsFalse(icons[4].gameObject.activeSelf);
+
+            AssertDistinctIconRender(icons[0], icons[1], "King", "Holding");
+            AssertDistinctIconRender(icons[0], icons[2], "King", "Held");
+            AssertDistinctIconRender(icons[0], icons[3], "King", "Captured");
+            AssertDistinctIconRender(icons[1], icons[2], "Holding", "Held");
+            AssertDistinctIconRender(icons[1], icons[3], "Holding", "Captured");
+            AssertDistinctIconRender(icons[2], icons[3], "Held", "Captured");
+        }
+        finally
+        {
+            foreach (var iconObject in iconObjects)
+            {
+                Object.DestroyImmediate(iconObject);
+            }
+
+            Object.DestroyImmediate(statusObject);
+            Object.DestroyImmediate(hudObject);
+            Object.DestroyImmediate(managerObject);
+            Object.DestroyImmediate(captured.GameObject);
+            Object.DestroyImmediate(captureHelper.GameObject);
+            Object.DestroyImmediate(held.GameObject);
+            Object.DestroyImmediate(holder.GameObject);
+            Object.DestroyImmediate(king.GameObject);
+        }
+    }
+
+    [Test]
     public void PlayerHudUpdatesCaptureProgressRingFromLocalCaptureSystem()
     {
         var king = CreateAgent("Ring King", TeamId.Blue, MovementState.King);
@@ -847,6 +930,28 @@ public sealed class PlayerHudUiTests
         Assert.AreEqual(expected, rows.ProgressFills[index].gameObject.activeInHierarchy);
         Assert.AreEqual(expected, rows.StateTexts[index].gameObject.activeInHierarchy);
         Assert.AreEqual(expected, rows.OccupantCountTexts[index].gameObject.activeInHierarchy);
+    }
+
+    private static void AssertTeamStatusIconActive(Image icon, string statusName)
+    {
+        Assert.IsTrue(icon.gameObject.activeSelf, $"{statusName} icon should be active.");
+        Assert.IsNotNull(icon.sprite, $"{statusName} icon should assign a sprite.");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(icon.sprite.name), $"{statusName} icon sprite should be named.");
+        Assert.AreNotEqual(Color.magenta, icon.color, $"{statusName} icon should overwrite stale slot color.");
+    }
+
+    private static void AssertDistinctIconRender(Image first, Image second, string firstName, string secondName)
+    {
+        Assert.AreNotEqual(
+            first.sprite.name,
+            second.sprite.name,
+            $"{firstName} and {secondName} should not reuse the same sprite."
+        );
+        Assert.AreNotEqual(
+            first.color,
+            second.color,
+            $"{firstName} and {secondName} should not reuse the same color."
+        );
     }
 
     private static void AssertColor(Color expected, Color actual)

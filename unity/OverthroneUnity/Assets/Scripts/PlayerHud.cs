@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
@@ -30,6 +31,7 @@ namespace Overthrone
         [SerializeField] private LocalCaptureSystem captureSystem;
         [SerializeField] private LocalDeadChannel deadChannel;
         [SerializeField] private LocalPingSystem pingSystem;
+        [SerializeField] private Image[] teamStatusIconImages = Array.Empty<Image>();
         [SerializeField] private RectTransform minimapRoot;
         [SerializeField] private Image localMinimapMarker;
         [SerializeField] private Image[] participantMinimapMarkers = Array.Empty<Image>();
@@ -47,7 +49,9 @@ namespace Overthrone
         private const string DeadChannelInputSentStatus = "Sent";
         private const string DeadChannelInputBlockedStatus = "Not sent";
         private const string DeadChannelInputHint = "Dead comms";
+        private const int TeamStatusIconTextureSize = 16;
 
+        private static readonly Dictionary<TeamStatusIconKind, Sprite> TeamStatusIconSprites = new Dictionary<TeamStatusIconKind, Sprite>();
         private string deadChannelInputStatus = DeadChannelInputReadyStatus;
 
         public void Configure(
@@ -84,7 +88,8 @@ namespace Overthrone
             InputField localDeadChannelInputField = null,
             Button localDeadChannelSendButton = null,
             Text localDeadChannelInputStatusText = null,
-            Text localDeadChannelInputHintText = null)
+            Text localDeadChannelInputHintText = null,
+            Image[] teamStatusIconImages = null)
         {
             if (deadChannelSendButton != null)
             {
@@ -120,6 +125,7 @@ namespace Overthrone
             pingMinimapMarker = minimapPingMarker;
             pingLogText = localPingLogText;
             pingWheelText = localPingWheelText;
+            this.teamStatusIconImages = teamStatusIconImages ?? Array.Empty<Image>();
             deadChannelInputField = localDeadChannelInputField;
             deadChannelSendButton = localDeadChannelSendButton;
             deadChannelInputStatusText = localDeadChannelInputStatusText;
@@ -179,6 +185,8 @@ namespace Overthrone
                 teamRailText.gameObject.SetActive(hasTeamRail);
                 teamRailText.text = hasTeamRail ? BuildTeamRailText() : string.Empty;
             }
+
+            RefreshTeamStatusIcons();
 
             if (captureProgressRing != null)
             {
@@ -534,6 +542,142 @@ namespace Overthrone
             return builder.ToString();
         }
 
+        private void RefreshTeamStatusIcons()
+        {
+            if (teamStatusIconImages == null || teamStatusIconImages.Length == 0)
+            {
+                return;
+            }
+
+            var participants = matchManager != null ? matchManager.Participants : Array.Empty<LocalPlayerTeam>();
+            for (var i = 0; i < teamStatusIconImages.Length; i++)
+            {
+                var icon = teamStatusIconImages[i];
+                var participant = participants != null && i < participants.Length ? participants[i] : null;
+                if (icon == null)
+                {
+                    continue;
+                }
+
+                icon.gameObject.SetActive(participant != null);
+                if (participant == null)
+                {
+                    icon.sprite = null;
+                    continue;
+                }
+
+                var iconKind = ResolveTeamStatusIconKind(participant);
+                icon.sprite = GetTeamStatusIconSprite(iconKind);
+                icon.color = ColorForTeamStatusIcon(iconKind);
+                icon.preserveAspect = true;
+            }
+        }
+
+        private static TeamStatusIconKind ResolveTeamStatusIconKind(LocalPlayerTeam participant)
+        {
+            var agent = participant != null ? participant.GetComponent<PlayerCaptureAgent>() : null;
+            if (agent != null)
+            {
+                switch (agent.Status)
+                {
+                    case CaptureStatus.Captured:
+                        return TeamStatusIconKind.Captured;
+                    case CaptureStatus.Held:
+                        return TeamStatusIconKind.Held;
+                    case CaptureStatus.Holding:
+                        return TeamStatusIconKind.Holding;
+                }
+            }
+
+            var state = participant != null ? participant.GetComponent<PlayerStateController>() : null;
+            if (state == null)
+            {
+                return TeamStatusIconKind.Neutral;
+            }
+
+            return state.PersistentState switch
+            {
+                MovementState.King => TeamStatusIconKind.King,
+                MovementState.Attacker => TeamStatusIconKind.Attacker,
+                MovementState.Slime => TeamStatusIconKind.Slime,
+                _ => TeamStatusIconKind.Neutral
+            };
+        }
+
+        private static Sprite GetTeamStatusIconSprite(TeamStatusIconKind iconKind)
+        {
+            if (TeamStatusIconSprites.TryGetValue(iconKind, out var sprite))
+            {
+                return sprite;
+            }
+
+            var texture = CreateTeamStatusIconTexture(iconKind);
+            sprite = Sprite.Create(
+                texture,
+                new Rect(0f, 0f, TeamStatusIconTextureSize, TeamStatusIconTextureSize),
+                new Vector2(0.5f, 0.5f),
+                TeamStatusIconTextureSize
+            );
+            sprite.name = $"TeamStatusIcon_{iconKind}";
+            TeamStatusIconSprites[iconKind] = sprite;
+            return sprite;
+        }
+
+        private static Texture2D CreateTeamStatusIconTexture(TeamStatusIconKind iconKind)
+        {
+            var texture = new Texture2D(TeamStatusIconTextureSize, TeamStatusIconTextureSize, TextureFormat.RGBA32, false)
+            {
+                name = $"TeamStatusIconTexture_{iconKind}",
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp
+            };
+
+            for (var y = 0; y < TeamStatusIconTextureSize; y++)
+            {
+                for (var x = 0; x < TeamStatusIconTextureSize; x++)
+                {
+                    texture.SetPixel(x, y, ShouldFillTeamStatusIconPixel(iconKind, x, y) ? Color.white : Color.clear);
+                }
+            }
+
+            texture.Apply();
+            return texture;
+        }
+
+        private static bool ShouldFillTeamStatusIconPixel(TeamStatusIconKind iconKind, int x, int y)
+        {
+            var distanceFromCenter = Mathf.Abs(x - 7.5f) + Mathf.Abs(y - 7.5f);
+            return iconKind switch
+            {
+                TeamStatusIconKind.Captured => x == y || x + y == TeamStatusIconTextureSize - 1 || IsBorderPixel(x, y),
+                TeamStatusIconKind.Held => y >= 6 && y <= 9 || x <= 2 || x >= 13,
+                TeamStatusIconKind.Holding => x >= 5 && x <= 10 && y >= 3 && y <= 12 || y <= 2 && x >= 6 && x <= 9,
+                TeamStatusIconKind.King => y <= 4 && (x == 3 || x == 8 || x == 12) || y >= 5 && y <= 8 && x >= 2 && x <= 13 || y >= 9 && y <= 11 && x >= 4 && x <= 11,
+                TeamStatusIconKind.Attacker => Mathf.Abs(x - y) <= 1 || x >= 10 && y >= 3 && y <= 12,
+                TeamStatusIconKind.Slime => distanceFromCenter <= 7.5f && y >= 4 && y <= 12,
+                _ => x >= 4 && x <= 11 && y >= 4 && y <= 11
+            };
+        }
+
+        private static bool IsBorderPixel(int x, int y)
+        {
+            return x == 0 || y == 0 || x == TeamStatusIconTextureSize - 1 || y == TeamStatusIconTextureSize - 1;
+        }
+
+        private static Color ColorForTeamStatusIcon(TeamStatusIconKind iconKind)
+        {
+            return iconKind switch
+            {
+                TeamStatusIconKind.Captured => new Color(0.12f, 0.12f, 0.14f, 0.98f),
+                TeamStatusIconKind.Held => new Color(1f, 0.18f, 0.24f, 0.98f),
+                TeamStatusIconKind.Holding => new Color(1f, 0.64f, 0.18f, 0.98f),
+                TeamStatusIconKind.King => new Color(1f, 0.84f, 0.18f, 0.98f),
+                TeamStatusIconKind.Attacker => new Color(1f, 0.38f, 0.18f, 0.98f),
+                TeamStatusIconKind.Slime => new Color(0.18f, 0.95f, 0.46f, 0.98f),
+                _ => new Color(0.82f, 0.88f, 0.92f, 0.92f)
+            };
+        }
+
         private void AppendMatchSummary(StringBuilder builder)
         {
             if (matchManager == null)
@@ -881,6 +1025,17 @@ namespace Overthrone
         private static string FormatSpectatorTarget(PlayerCaptureAgent target)
         {
             return target != null ? target.name : "FreeCam";
+        }
+
+        private enum TeamStatusIconKind
+        {
+            Neutral,
+            Attacker,
+            King,
+            Slime,
+            Holding,
+            Held,
+            Captured
         }
     }
 }
