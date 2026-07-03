@@ -1,8 +1,16 @@
 using System;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace Overthrone
 {
+    public enum LocalBotMoveMode
+    {
+        None,
+        DirectFallback,
+        NavMeshPath
+    }
+
     [DefaultExecutionOrder(-100)]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(PlayerInputReader))]
@@ -18,7 +26,10 @@ namespace Overthrone
         [SerializeField] private float pointArrivalDistance = 1.1f;
         [SerializeField] private float chaseRange = 10f;
         [SerializeField] private float turnDegreesPerSecond = 540f;
+        [SerializeField] private float navMeshSampleDistance = 1.5f;
+        [SerializeField] private float navMeshCornerArrivalDistance = 0.35f;
 
+        private NavMeshPath navMeshPath;
         private PlayerInputReader input;
         private PlayerMotor motor;
         private PlayerCaptureAgent agent;
@@ -26,6 +37,8 @@ namespace Overthrone
 
         public CapturePoint CurrentPointTarget { get; private set; }
         public PlayerCaptureAgent CurrentAgentTarget { get; private set; }
+        public LocalBotMoveMode LastMoveMode { get; private set; }
+        public Vector3 LastSteeringTarget { get; private set; }
 
         public void Configure(
             CapturePoint[] points,
@@ -56,6 +69,7 @@ namespace Overthrone
             deltaTime = Mathf.Max(0f, deltaTime);
             CurrentPointTarget = null;
             CurrentAgentTarget = null;
+            ClearSteeringTelemetry();
 
             if (input == null || agent == null || team == null || motor == null)
             {
@@ -254,9 +268,18 @@ namespace Overthrone
 
         private void MoveToward(Vector3 worldPosition, float deltaTime, bool sprint)
         {
-            var direction = worldPosition - transform.position;
+            var finalOffset = worldPosition - transform.position;
+            finalOffset.y = 0f;
+            if (finalOffset.magnitude <= pointArrivalDistance)
+            {
+                input.SetManualInput(Vector2.zero);
+                return;
+            }
+
+            var steeringTarget = ResolveSteeringTarget(worldPosition);
+            var direction = steeringTarget - transform.position;
             direction.y = 0f;
-            if (direction.magnitude <= pointArrivalDistance)
+            if (direction.magnitude <= navMeshCornerArrivalDistance)
             {
                 input.SetManualInput(Vector2.zero);
                 return;
@@ -267,6 +290,65 @@ namespace Overthrone
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, turnDegreesPerSecond * deltaTime);
             var local = transform.InverseTransformDirection(normalized);
             input.SetManualInput(new Vector2(local.x, local.z), sprint);
+        }
+
+        private Vector3 ResolveSteeringTarget(Vector3 worldPosition)
+        {
+            if (TryResolveNavMeshSteeringTarget(worldPosition, out var steeringTarget))
+            {
+                LastMoveMode = LocalBotMoveMode.NavMeshPath;
+                LastSteeringTarget = steeringTarget;
+                return steeringTarget;
+            }
+
+            LastMoveMode = LocalBotMoveMode.DirectFallback;
+            LastSteeringTarget = worldPosition;
+            return worldPosition;
+        }
+
+        private bool TryResolveNavMeshSteeringTarget(Vector3 worldPosition, out Vector3 steeringTarget)
+        {
+            steeringTarget = worldPosition;
+            if (!NavMesh.SamplePosition(transform.position, out var startHit, navMeshSampleDistance, NavMesh.AllAreas))
+            {
+                return false;
+            }
+
+            if (!NavMesh.SamplePosition(worldPosition, out var targetHit, navMeshSampleDistance, NavMesh.AllAreas))
+            {
+                return false;
+            }
+
+            navMeshPath ??= new NavMeshPath();
+            if (!NavMesh.CalculatePath(startHit.position, targetHit.position, NavMesh.AllAreas, navMeshPath))
+            {
+                return false;
+            }
+
+            if (navMeshPath.status != NavMeshPathStatus.PathComplete || navMeshPath.corners.Length < 2)
+            {
+                return false;
+            }
+
+            for (var index = 1; index < navMeshPath.corners.Length; index++)
+            {
+                var cornerOffset = navMeshPath.corners[index] - startHit.position;
+                cornerOffset.y = 0f;
+                if (cornerOffset.magnitude > navMeshCornerArrivalDistance)
+                {
+                    steeringTarget = navMeshPath.corners[index];
+                    return true;
+                }
+            }
+
+            steeringTarget = targetHit.position;
+            return true;
+        }
+
+        private void ClearSteeringTelemetry()
+        {
+            LastMoveMode = LocalBotMoveMode.None;
+            LastSteeringTarget = transform.position;
         }
 
         private void ResolveReferences()
@@ -282,6 +364,8 @@ namespace Overthrone
             pointArrivalDistance = Mathf.Max(0.1f, pointArrivalDistance);
             chaseRange = Mathf.Max(0f, chaseRange);
             turnDegreesPerSecond = Mathf.Max(0f, turnDegreesPerSecond);
+            navMeshSampleDistance = Mathf.Max(0.1f, navMeshSampleDistance);
+            navMeshCornerArrivalDistance = Mathf.Max(0.05f, navMeshCornerArrivalDistance);
         }
     }
 }

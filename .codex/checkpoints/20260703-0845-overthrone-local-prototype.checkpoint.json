@@ -1,8 +1,8 @@
 {
   "goal": "GDD 기준으로 Overthrone 로컬 프로토타입을 가능한 범위까지 구현하고, 미완료 항목은 명시한 뒤 wrap 문서와 git 커밋으로 세션을 마감한다.",
-  "status": "stopped",
+  "status": "in_progress",
   "created_at": "2026-07-03 08:45",
-  "updated_at": "2026-07-03 09:22",
+  "updated_at": "2026-07-03 10:04",
   "progress": [
     {
       "phase": "문서 재정리와 방향 결정",
@@ -104,6 +104,19 @@
         "unity/OverthroneUnity/README.md",
         "GDD.md"
       ]
+    },
+    {
+      "phase": "NavMesh 로컬 봇 경로 보강",
+      "summary": "중간점검 이후 로컬 봇이 더 이상 단순 직선 이동에만 의존하지 않도록 `LocalBotController`에 NavMesh complete path 계산과 다음 path corner 추종을 추가했다. NavMesh sample/path 계산이 실패하면 기존 direct target 이동으로 fallback하며, 이동 입력은 계속 `PlayerInputReader.SetManualInput(...)`을 통해 `PlayerMotor`로 흘려보내 상태별 이동 SSOT를 유지한다. Bootstrap은 `NavMeshSurface`를 생성해 외부 NavMeshData asset으로 저장하고, NPC 5명에는 `NavMeshAgent`를 pathing 설정 참조용으로 붙이되 위치/회전 갱신은 끈 상태로 둔다. Scene은 text YAML을 유지하도록 NavMeshData를 별도 asset으로 분리했다.",
+      "evidence": [
+        "unity/OverthroneUnity/Assets/Scripts/AI/LocalBotController.cs",
+        "unity/OverthroneUnity/Assets/Tests/EditMode/LocalBotControllerTests.cs",
+        "unity/OverthroneUnity/Assets/Editor/OverthroneUnityBootstrap.cs",
+        "unity/OverthroneUnity/Assets/Scenes/Prototype.unity",
+        "unity/OverthroneUnity/Assets/Scenes/Prototype/NavMesh-MoonlitGardenBlockout.asset",
+        "unity/OverthroneUnity/README.md",
+        "GDD.md"
+      ]
     }
   ],
   "decisions": [
@@ -116,7 +129,9 @@
     "상대 전원 Captured 승리는 LocalMatchManager의 라운드 결과 조건으로 처리한다. 3점령 30초 승리와 별도로 즉시 RoundEnded 이벤트를 낸다.",
     "시간 종료 생존 승리는 로컬 MVP에서 active non-Captured 생존자 수를 1차 기준으로 삼고, 동률이면 owned capture point 수, 다시 동률이면 Winner None draw로 종료한다.",
     "포기 승리는 양 팀 roster가 모두 존재한 뒤 한 팀 active/enabled 참가자가 0명이 된 경우에만 적용해 초기 미구성 상태를 오판하지 않는다.",
-    "왕이 혼자 Tackle->Hold->Capture까지 가능한 회색지대는 이번 패치에서 고치지 않고 설계 질문으로 남긴다."
+    "왕이 혼자 Tackle->Hold->Capture까지 가능한 회색지대는 이번 패치에서 고치지 않고 설계 질문으로 남긴다.",
+    "로컬 봇 pathing은 NavMesh를 steering target 계산에만 사용하고 실제 위치/속도 적용은 PlayerInputReader와 PlayerMotor 경로를 유지한다.",
+    "NavMeshData는 씬에 binary로 직접 박지 않고 `Assets/Scenes/Prototype/NavMesh-MoonlitGardenBlockout.asset`으로 분리해 `Prototype.unity`를 diff 가능한 text YAML로 유지한다."
   ],
   "blockers": [
     {
@@ -142,13 +157,13 @@
     "슬라임 좁은 통로 레벨 검증과 shader/softbody VFX는 미구현.",
     "한 씬에서 여러 라운드를 재시작할 때 슬라임 1회 탈출권 reset hook 필요.",
     "dead channel 실제 입력 UI, 온라인 채팅, moderation 설계 필요.",
-    "로컬 봇은 아직 NavMesh/pathfinding/장애물 회피/수색/경계 행동이 없다. 현재는 플레이 루프 검증용 straight-line MVP다.",
+    "로컬 봇은 NavMesh path corner 추종까지 보강됐지만 dynamic obstacle avoidance, 수색/경계 상태, 행동 트리/전술 판단은 아직 없다.",
     "왕 단독 최종 포획을 허용할지, 반드시 제3자 협동을 강제할지 설계 결정 필요.",
     "EditMode 규칙 검증은 통과했지만 실제 PlayMode/E2E 장시간 플레이 검증은 다음 단계다."
   ],
   "handoff": {
     "local_run": "Unity Hub에서 unity/OverthroneUnity 프로젝트를 열고 Assets/Scenes/Prototype.unity를 실행한다.",
     "test_command": "/Applications/Unity/Hub/Editor/6000.0.78f1/Unity.app/Contents/MacOS/Unity -batchmode -projectPath /Users/wy/Github-repos/game1/unity/OverthroneUnity -runTests -testPlatform EditMode -testResults /Users/wy/Github-repos/game1/unity/OverthroneUnity/TestResults.xml -logFile -",
-    "last_verification": "2026-07-03 09:37 KST 기준 Unity EditMode 114/114 Passed, git diff --check Passed, checkpoint JSON parse Passed. 직전 bootstrap exit 0, inputactions JSON parse Passed."
+    "last_verification": "2026-07-03 10:04 KST 기준 Unity EditMode 120/120 Passed. 10:02 KST Unity bootstrap exit 0. `Prototype.unity` ASCII text 유지, NavMeshSurface가 외부 NavMeshData asset guid 10352c7990d43416c936ae80f31dbd77 참조 확인, NPC 5명 NavMeshAgent 및 baseOffset 0 확인, git diff --check Passed."
   }
 }

@@ -1,9 +1,13 @@
+using System.Collections.Generic;
 using NUnit.Framework;
 using Overthrone;
 using UnityEngine;
+using UnityEngine.AI;
 
 public sealed class LocalBotControllerTests
 {
+    private const float DirectionTolerance = 0.01f;
+
     [Test]
     public void BotChoosesCapturePointAndInjectsMovementInput()
     {
@@ -28,6 +32,173 @@ public sealed class LocalBotControllerTests
         {
             bot.Destroy();
             Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void DirectFallbackUsesDestinationVectorWhenNoNavMeshPathExists()
+    {
+        var bot = CreateAgent("Direct Fallback Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var pointObject = CreateCapturePoint("Fallback Target", new Vector3(8f, 0f, 0f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.Greater(bot.Input.Move.x, 0.99f);
+            Assert.AreEqual(0f, bot.Input.Move.y, DirectionTolerance);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void DirectFallbackNormalizesDiagonalDestinationBeforeInjectingInput()
+    {
+        var bot = CreateAgent("Diagonal Fallback Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var pointObject = CreateCapturePoint("Diagonal Fallback Target", new Vector3(10f, 0f, 10f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.AreEqual(1f, bot.Input.Move.magnitude, DirectionTolerance);
+            Assert.Greater(bot.Input.Move.x, 0.7f);
+            Assert.Greater(bot.Input.Move.y, 0.7f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void DirectFallbackStopsAtArrivalDistanceBoundary()
+    {
+        var bot = CreateAgent("Arrival Boundary Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var pointObject = CreateCapturePoint("Arrival Boundary Target", new Vector3(0f, 0f, 1.1f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0.1f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.None, controller.LastMoveMode);
+            AssertVectorApproximately(bot.GameObject.transform.position, controller.LastSteeringTarget);
+            Assert.AreEqual(Vector2.zero, bot.Input.Move);
+            Assert.IsFalse(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void DirectFallbackMovesJustOutsideArrivalDistanceBoundary()
+    {
+        var bot = CreateAgent("Arrival Outside Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+        var pointObject = CreateCapturePoint("Arrival Outside Target", new Vector3(0f, 0f, 1.11f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.DirectFallback, controller.LastMoveMode);
+            AssertVectorApproximately(point.transform.position, controller.LastSteeringTarget);
+            Assert.AreEqual(0f, bot.Input.Move.x, DirectionTolerance);
+            Assert.Greater(bot.Input.Move.y, 0.99f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void NavMeshPathUsesFirstCornerWhenCompletePathExists()
+    {
+        var navMesh = CreateTemporaryNavMeshWithWall();
+        var bot = CreateAgent("NavMesh Path Bot", TeamId.Blue, MovementState.Neutral, new Vector3(-3f, 0f, -3f));
+        var pointObject = CreateCapturePoint("NavMesh Target", new Vector3(3f, 0f, 3f));
+
+        try
+        {
+            var point = pointObject.GetComponent<CapturePoint>();
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(new[] { point }, new[] { bot.Team }, new[] { bot.Agent }, null);
+
+            controller.Tick(0f);
+
+            Assert.AreEqual(point, controller.CurrentPointTarget);
+            Assert.AreEqual(LocalBotMoveMode.NavMeshPath, controller.LastMoveMode);
+            Assert.Greater(Vector3.Distance(point.transform.position, controller.LastSteeringTarget), 0.25f);
+            Assert.Greater(bot.Input.Move.sqrMagnitude, 0.01f);
+            Assert.IsTrue(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            navMesh.Destroy();
+            bot.Destroy();
+            Object.DestroyImmediate(pointObject);
+        }
+    }
+
+    [Test]
+    public void TickClearsManualInputWhenNullConfigurationLeavesNoFallbackTarget()
+    {
+        var bot = CreateAgent("Null Config Bot", TeamId.Blue, MovementState.Neutral, Vector3.zero);
+
+        try
+        {
+            bot.Input.SetManualInput(Vector2.right, true);
+            var controller = bot.GameObject.AddComponent<LocalBotController>();
+            controller.Configure(null, null, null, null);
+
+            controller.Tick(-0.25f);
+
+            Assert.IsNull(controller.CurrentPointTarget);
+            Assert.IsNull(controller.CurrentAgentTarget);
+            Assert.AreEqual(LocalBotMoveMode.None, controller.LastMoveMode);
+            AssertVectorApproximately(bot.GameObject.transform.position, controller.LastSteeringTarget);
+            Assert.AreEqual(Vector2.zero, bot.Input.Move);
+            Assert.IsFalse(bot.Input.SprintHeld);
+        }
+        finally
+        {
+            bot.Destroy();
         }
     }
 
@@ -58,6 +229,51 @@ public sealed class LocalBotControllerTests
             bot.Destroy();
             target.Destroy();
         }
+    }
+
+    private static GameObject CreateCapturePoint(string name, Vector3 position)
+    {
+        var pointObject = new GameObject(name);
+        var point = pointObject.AddComponent<CapturePoint>();
+        point.Configure("A", 5f);
+        pointObject.transform.position = position;
+        return pointObject;
+    }
+
+    private static TemporaryNavMesh CreateTemporaryNavMeshWithWall()
+    {
+        var sources = new List<NavMeshBuildSource>
+        {
+            new NavMeshBuildSource
+            {
+                shape = NavMeshBuildSourceShape.Box,
+                transform = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, Vector3.one),
+                size = new Vector3(8f, 0.2f, 8f),
+                area = 0
+            },
+            new NavMeshBuildSource
+            {
+                shape = NavMeshBuildSourceShape.ModifierBox,
+                transform = Matrix4x4.TRS(new Vector3(0f, 0.6f, 0f), Quaternion.identity, Vector3.one),
+                size = new Vector3(1.2f, 2f, 5f),
+                area = 1
+            }
+        };
+
+        var data = NavMeshBuilder.BuildNavMeshData(
+            NavMesh.GetSettingsByID(0),
+            sources,
+            new Bounds(Vector3.zero, new Vector3(10f, 4f, 10f)),
+            Vector3.zero,
+            Quaternion.identity
+        );
+        Assert.IsNotNull(data);
+        return new TemporaryNavMesh(data, NavMesh.AddNavMeshData(data));
+    }
+
+    private static void AssertVectorApproximately(Vector3 expected, Vector3 actual)
+    {
+        Assert.LessOrEqual(Vector3.Distance(expected, actual), DirectionTolerance);
     }
 
     private static AgentFixture CreateAgent(string name, TeamId team, MovementState state, Vector3 position)
@@ -95,6 +311,24 @@ public sealed class LocalBotControllerTests
         public void Destroy()
         {
             Object.DestroyImmediate(GameObject);
+        }
+    }
+
+    private readonly struct TemporaryNavMesh
+    {
+        public TemporaryNavMesh(NavMeshData data, NavMeshDataInstance instance)
+        {
+            Data = data;
+            Instance = instance;
+        }
+
+        private NavMeshData Data { get; }
+        private NavMeshDataInstance Instance { get; }
+
+        public void Destroy()
+        {
+            Instance.Remove();
+            Object.DestroyImmediate(Data);
         }
     }
 }

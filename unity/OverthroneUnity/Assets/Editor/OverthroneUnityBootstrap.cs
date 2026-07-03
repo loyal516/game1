@@ -1,9 +1,11 @@
 using System.Collections.Generic;
 using Overthrone;
+using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -14,12 +16,14 @@ public static class OverthroneUnityBootstrap
     private const string InputPath = "Assets/Input/OverthroneControls.inputactions";
     private const string ControllerPath = "Assets/Animations/Controllers/Player.controller";
     private const string ScenePath = "Assets/Scenes/Prototype.unity";
+    private const string NavMeshDataPath = "Assets/Scenes/Prototype/NavMesh-MoonlitGardenBlockout.asset";
     private const string PlayerPrefabPath = "Assets/Prefabs/Player.prefab";
     private const string AiPrefabPath = "Assets/Prefabs/HearingAI.prefab";
 
     [MenuItem("Overthrone/Bootstrap Prototype Scene")]
     public static void BootstrapPrototypeScene()
     {
+        EnsureTextSerialization();
         EnsureFolders();
 
         var profiles = CreateMovementProfiles();
@@ -28,7 +32,8 @@ public static class OverthroneUnityBootstrap
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
         CreateLighting();
-        CreateGround();
+        var ground = CreateGround();
+        CreateNavigationSurface(ground);
         var rosterSlots = LocalRosterBuilder.CreateDefaultThreeVsThree();
         var player = CreatePlayer(profiles, controller, inputActions, rosterSlots[0]);
         var rosterObjects = CreateRosterParticipants(profiles, rosterSlots, player);
@@ -67,6 +72,14 @@ public static class OverthroneUnityBootstrap
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
         Debug.Log("Overthrone Unity prototype scene bootstrapped.");
+    }
+
+    private static void EnsureTextSerialization()
+    {
+        if (EditorSettings.serializationMode != SerializationMode.ForceText)
+        {
+            EditorSettings.serializationMode = SerializationMode.ForceText;
+        }
     }
 
     private static void EnsureFolders()
@@ -184,13 +197,43 @@ public static class OverthroneUnityBootstrap
         RenderSettings.ambientLight = new Color(0.72f, 0.86f, 0.95f);
     }
 
-    private static void CreateGround()
+    private static GameObject CreateGround()
     {
         var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
         ground.name = "Moonlit Garden Blockout";
         ground.transform.localScale = new Vector3(8f, 1f, 8f);
+        ground.isStatic = true;
         var renderer = ground.GetComponent<MeshRenderer>();
         renderer.sharedMaterial = CreateMaterial("Assets/Art/Materials/GardenGrass.mat", new Color(0.46f, 0.78f, 0.34f));
+        return ground;
+    }
+
+    private static NavMeshSurface CreateNavigationSurface(GameObject ground)
+    {
+        var surface = ground.AddComponent<NavMeshSurface>();
+        surface.collectObjects = CollectObjects.All;
+        surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+        surface.BuildNavMesh();
+        StoreNavMeshDataAsset(surface);
+        return surface;
+    }
+
+    private static void StoreNavMeshDataAsset(NavMeshSurface surface)
+    {
+        if (surface.navMeshData == null)
+        {
+            return;
+        }
+
+        var directory = System.IO.Path.GetDirectoryName(NavMeshDataPath);
+        if (!string.IsNullOrEmpty(directory) && !AssetDatabase.IsValidFolder(directory))
+        {
+            AssetDatabase.CreateFolder("Assets/Scenes", "Prototype");
+        }
+
+        AssetDatabase.DeleteAsset(NavMeshDataPath);
+        AssetDatabase.CreateAsset(surface.navMeshData, NavMeshDataPath);
+        EditorUtility.SetDirty(surface);
     }
 
     private static GameObject CreatePlayer(
@@ -289,8 +332,26 @@ public static class OverthroneUnityBootstrap
         team.ConfigureKingPriority(0, 0f, 100 - slot.TeamIndex);
         target.AddComponent<PlayerCaptureAgent>();
         target.AddComponent<TackleHitbox>();
+        ConfigureNavMeshAgent(target, characterController);
         target.AddComponent<LocalBotController>();
         return target;
+    }
+
+    private static void ConfigureNavMeshAgent(GameObject target, CharacterController characterController)
+    {
+        var navAgent = target.AddComponent<NavMeshAgent>();
+        navAgent.radius = characterController.radius;
+        navAgent.height = characterController.height;
+        navAgent.baseOffset = 0f;
+        navAgent.speed = 7.6f;
+        navAgent.acceleration = 24f;
+        navAgent.angularSpeed = 540f;
+        navAgent.stoppingDistance = 0.1f;
+        navAgent.autoBraking = false;
+        navAgent.updatePosition = false;
+        navAgent.updateRotation = false;
+        navAgent.updateUpAxis = false;
+        navAgent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
     }
 
     private static LocalPlayerTeam[] GetRosterTeams(GameObject[] rosterObjects)
